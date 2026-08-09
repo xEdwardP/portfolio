@@ -1,0 +1,107 @@
+---
+title: Catracho GO
+summary: A ride-hailing platform for Honduras with three roles, geospatial fare calculation and a wallet handling real payments. API, web and mobile app.
+role: API, web dashboard and mobile app
+tier: case-study
+ecosystem: node
+category: web
+stack:
+  - NestJS 11
+  - Prisma 7
+  - PostgreSQL 17
+  - PostGIS 3.5
+  - React 19
+  - React Native
+  - Expo
+  - TypeScript
+year: 2026
+status: active
+featured: true
+order: 1
+repos:
+  - label: API
+    url: https://github.com/xEdwardP/catrachogo-api
+  - label: Web
+    url: https://github.com/xEdwardP/catrachogo-web
+  - label: Mobile
+    url: https://github.com/xEdwardP/catrachogo-mobile
+highlights:
+  - Geospatial fares with PostGIS and a fallback when the routing API fails
+  - Three distinct clients against a single API
+  - Wallet with PayPal, platform commission and payouts
+---
+
+## The problem
+
+A ride-hailing platform is not a CRUD app. It has to price a trip **before** that trip
+exists, match drivers in real time, move real money between three parties, and keep working
+when an external service goes down. It also serves three user types with opposing needs: the
+passenger wants to book fast, the driver wants to maximise earnings, and the administrator
+needs control over both.
+
+Scope made it harder: **the same full feature set in the browser and in a native app**, for
+all three roles, without duplicating business rules.
+
+## Architecture decisions
+
+### One API, three clients
+
+All logic lives in `catrachogo-api` (NestJS 11). Neither the web app nor the mobile app
+holds business rules: they compute zero fares and validate zero state transitions. They
+consume the same endpoints.
+
+The practical consequence is that a business rule changes in one place. If the no-show grace
+period goes from 5 minutes to 3, neither client notices.
+
+The single concession to platform is **token expiry**: a browser tab and an installed app do
+not deserve the same session length. The client sends `X-Client-Platform` and the backend
+signs with either `JWT_EXPIRES_IN` (7 days) or `JWT_EXPIRES_IN_MOBILE` (30 days).
+
+### Geography in the database, not in application code
+
+Fares depend on distance, and distance on a map is not arithmetic. Rather than solving it in
+TypeScript, the calculation lives in **PostgreSQL 17 with PostGIS 3.5**: real distance,
+driver search radius, and validation that a point falls inside the Honduras polygon.
+
+Road distance comes from the **Google Directions API**. But an external API can fail, and a
+trip that cannot be quoted is a lost trip. So there is a fallback: if Directions fails, the
+system uses PostGIS `ST_Distance` multiplied by 1.3, a factor approximating how much a real
+route deviates from a straight line. The estimate loses precision, but the platform **keeps
+selling trips**.
+
+### Money as state, not as a side effect
+
+Completing a trip, cancelling it with a charge, or reporting a no-show all move balance
+toward the platform wallet. That wallet is a real user in the system (`PLATFORM_USER_ID`),
+not a loose column: the commission is a wallet-to-wallet transfer and lands in the same
+auditable history as any other movement.
+
+Top-ups come through **PayPal Checkout** and driver payouts leave through the same channel.
+Drivers cannot top up — only cash out.
+
+### Layered security
+
+Passwords hashed with **Argon2id**, not bcrypt. A global `ValidationPipe` with `whitelist`
+and `forbidNonWhitelisted`, so a field not declared in the DTO never reaches the service.
+`helmet` for headers and `@nestjs/throttler` with a global limit plus a stricter one on
+`login` and `register`.
+
+Images upload from the client straight to **Cloudinary**, so the backend never processes
+files. It does validate that the URL belongs to `res.cloudinary.com`, and it calls the
+Cloudinary API to delete the previous photo when one is replaced — avoiding the storage leak
+this pattern usually causes.
+
+## Outcome
+
+Three applications — API, web and mobile — covering all three platform roles from a single
+source of truth.
+
+On the web frontend, passenger and driver views are not a stretched mobile app: above the
+desktop breakpoint they use a real web application layout, with an information panel beside
+the map and table-style lists. Below it, the mobile design stays intact.
+
+The admin dashboard computes its KPIs — active trips, daily revenue, available drivers,
+pending payouts — in **a single aggregated endpoint** on the backend, instead of firing five
+queries from the browser.
+
+> Academic project developed as a team under the name "Los Inges".

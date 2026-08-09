@@ -1,0 +1,38 @@
+---
+title: BlueRose Ecommerce
+summary: 'Tienda en línea con back office administrativo, construida sobre arquitectura orientada a servicios: controladores delgados, validación en Form Requests y lógica en clases reutilizables.'
+role: Aplicación completa
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - Bootstrap 5
+  - Vite 7
+  - PayPal Checkout
+year: 2025
+status: completed
+featured: false
+order: 9
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/BlueRose_Ecommerce
+highlights:
+  - Cada unidad de lógica de negocio encapsulada en un servicio reutilizable
+  - Validación aislada en Form Requests, fuera del controlador
+---
+
+Tienda pública y panel administrativo sobre una misma base, organizados alrededor de una
+separación estricta de responsabilidades.
+
+Los controladores se mantienen delgados: no validan ni deciden, solo orquestan. La validación
+vive en **Form Requests** dedicados, y cada unidad de lógica de negocio está encapsulada en
+una **clase de servicio reutilizable**.
+
+Es la misma idea que aplico en los proyectos .NET con Repository y Unit of Work, expresada en
+las convenciones de Laravel: el objetivo no es seguir un patrón por nombre, sino que añadir
+una funcionalidad no obligue a leer un controlador de trescientas líneas para saber dónde
+tocar.
+
+Los pagos entran por PayPal Checkout.

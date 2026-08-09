@@ -1,0 +1,91 @@
+---
+title: Fantasy
+summary: Juego de predicciones de fútbol en .NET 8 donde los errores del backend viajan como códigos y el frontend los traduce, en lugar de mandar textos ya redactados por la API.
+role: Aplicación completa — API, SPA y pruebas
+tier: case-study
+ecosystem: dotnet
+category: web
+stack:
+  - .NET 8
+  - ASP.NET Core
+  - Blazor WebAssembly
+  - MudBlazor
+  - Entity Framework Core 8
+  - SQL Server
+  - MSTest
+year: 2025
+status: completed
+featured: false
+order: 7
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/Fantasy
+highlights:
+  - Errores como códigos traducibles, no como mensajes del servidor
+  - Borrado en cascada desactivado globalmente por decisión explícita
+  - Alcance de datos por usuario resuelto en el servidor
+---
+
+## El problema
+
+Un juego de predicciones es un problema de **tiempo y confianza**. Si un usuario puede
+registrar su pronóstico después de que el partido empezó, el juego deja de tener sentido. Si
+dos miembros del mismo grupo ven marcadores distintos, tampoco.
+
+Encima, la aplicación es bilingüe. Y una aplicación bilingüe tiene un punto ciego clásico:
+los mensajes de error. La interfaz se traduce con cuidado y luego el servidor devuelve
+`"Cannot delete: record has children"` en inglés, a un usuario que eligió español.
+
+## Decisiones de arquitectura
+
+### El servidor manda códigos, el cliente redacta
+
+Toda operación de repositorio o unidad de trabajo devuelve `ActionResponse<T>` con
+`WasSuccess`, `Message` y `Result`. Pero `Message` no lleva una frase: lleva un **código**
+(`ERR001` … `ERR018`).
+
+El frontend traduce ese código contra sus archivos de recursos `.resx`. La consecuencia es
+que el idioma del mensaje depende de quien lo lee, no de quien lo genera, y que añadir un
+idioma no obliga a tocar el backend.
+
+### Genéricos con puertas de escape
+
+El backend usa la misma cadena que `Orders` —controlador, unidad de trabajo y repositorio,
+genéricos en cada nivel—, así que una entidad CRUD nueva solo escribe lo que difiere del
+comportamiento por defecto.
+
+Los controladores concretos sobrescriben lo que necesitan y añaden variantes `full` que
+aceptan DTOs en vez de entidades, para los casos donde el modelo de la API y el de la base de
+datos dejan de coincidir.
+
+### El borrado en cascada está apagado a propósito
+
+`DataContext.OnModelCreating` fija `DeleteBehavior.Restrict` de forma **global**. Borrar un
+registro con hijos no arrastra la mitad de la base: devuelve `ERR002`.
+
+Es una decisión deliberada sobre el tipo de error que se prefiere. En un juego con torneos,
+equipos, partidos y predicciones encadenados, un borrado en cascada accidental es una pérdida
+de datos silenciosa; un error explícito es solo una molestia.
+
+### El alcance de datos no se le pregunta al cliente
+
+La paginación viaja en un `PaginationDTO` con `Page`, `RecordsNumber`, `Filter`, `Id` y
+`Email`. Cuando un endpoint debe limitar los datos al usuario que llama, el controlador fija
+`pagination.Email = User.Identity!.Name` **en el servidor**, ignorando lo que venga en la
+petición.
+
+Un cliente no puede pedir los datos de otro cambiando un parámetro.
+
+## Resultado
+
+Un administrador mantiene los catálogos —países, equipos, torneos, participantes y el fixture
+de partidos—. Cualquier usuario registrado crea un grupo privado, lo que le convierte en su
+administrador y genera un código de invitación de seis caracteres, compartible también como
+URL.
+
+Los miembros registran su pronóstico de marcador para cada partido, las predicciones se
+cierran antes del inicio, y cuando se cargan los resultados reales los puntos alimentan la
+tabla de posiciones del grupo.
+
+La SPA es Blazor WebAssembly con MudBlazor, modo oscuro por defecto y recursos en español e
+inglés.

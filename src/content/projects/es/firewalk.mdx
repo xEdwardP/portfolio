@@ -1,0 +1,37 @@
+---
+title: FireWalk Inventory
+summary: Inventario multi-sucursal con trazabilidad por lote. Cada unidad en stock se puede rastrear hasta su lote, proveedor, sucursal y compra de origen.
+role: Aplicación completa
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - Livewire 3
+  - AdminLTE 3
+  - Bootstrap 4.6
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 8
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/Firewalk
+highlights:
+  - Trazabilidad de cada unidad hasta lote, proveedor, sucursal y compra
+  - Ingreso de stock atómico al finalizar la compra
+---
+
+Back office operativo para negocios de retail y distribución, cubriendo el ciclo completo de
+abastecimiento.
+
+Se crea una orden de compra a un proveedor y se añaden sus líneas de forma interactiva: cada
+línea genera **su propio lote**, con fecha de vencimiento y precios propios. La orden se envía
+por correo al proveedor, y cuando la mercancía llega, finalizar la compra registra el stock
+en una sucursal concreta y escribe el movimiento de inventario correspondiente **en una sola
+operación atómica**.
+
+El resultado es que ninguna cantidad en existencia es anónima: se puede rastrear hasta su
+lote, su proveedor, su sucursal y la compra que la trajo. Eso es lo que permite responder a
+un vencimiento o a un lote defectuoso sin revisar el inventario entero.

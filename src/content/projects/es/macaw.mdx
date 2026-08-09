@@ -1,0 +1,119 @@
+---
+title: Macaw
+summary: 'Marketplace de tutorías universitarias donde el dinero nunca pasa directo entre usuarios: los créditos se congelan en depósito y solo se liberan cuando la sesión se confirma.'
+role: Aplicación completa — API y SPA
+tier: case-study
+ecosystem: node
+category: web
+stack:
+  - React 19
+  - Express 5
+  - Prisma
+  - PostgreSQL 18
+  - Zustand
+  - TanStack Query
+  - Tailwind CSS 4
+  - OpenAI
+year: 2026
+status: active
+featured: false
+order: 2
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/Macaw
+highlights:
+  - Créditos en depósito con liberación condicionada a la confirmación
+  - Seis validaciones encadenadas antes de aceptar una reserva
+  - Recomendación de tutores y resumen de reseñas con IA
+---
+
+## El problema
+
+Un marketplace de tutorías entre estudiantes tiene un problema que no tiene una tienda: las
+dos partes pueden mentir. El tutor puede cobrar sin dar la clase; el estudiante puede recibir
+la clase y decir que no ocurrió. Y ninguno de los dos confía en el otro lo suficiente como
+para pagar por adelantado.
+
+Encima está el problema de agenda: dos personas, disponibilidades distintas, y ninguna quiere
+descubrir el choque de horarios cuando ya reservó.
+
+## Decisiones de arquitectura
+
+### El dinero nunca se mueve entre usuarios
+
+Ningún estudiante le paga a ningún tutor. El estudiante compra **créditos internos** con
+PayPal, y a partir de ahí todo ocurre dentro del sistema:
+
+```
+1. Recarga de billetera con PayPal
+2. Reserva          → los créditos pasan de `balance` a `frozen`
+3. El tutor imparte la sesión y la marca como entregada
+4. El estudiante confirma
+     → 90 % al saldo del tutor
+     → 10 % a la billetera de la plataforma
+5. El tutor solicita retiro; un administrador lo aprueba y paga por PayPal
+```
+
+El depósito en garantía resuelve la desconfianza mutua: el estudiante no paga a un
+desconocido, paga al sistema; el tutor sabe que el dinero ya está apartado antes de dar la
+clase.
+
+El punto que evita que el mecanismo se atasque: **si el estudiante no hace nada, el paso 4
+ocurre solo a las 24 horas** mediante una tarea programada. Sin eso, un estudiante distraído
+—o de mala fe— podría dejar el saldo del tutor congelado para siempre.
+
+Cuando hay desacuerdo, la sesión pasa a `disputed` y la resuelve un administrador. El estado
+del dinero siempre corresponde a un estado explícito de la sesión.
+
+### Seis validaciones, en orden, antes de reservar
+
+Reservar comprueba en secuencia:
+
+1. El tutor existe y tiene disponibilidad ese día de la semana
+2. El rango solicitado cabe **entero** dentro de un bloque de disponibilidad
+3. La fecha es futura, evaluada en `America/Tegucigalpa`
+4. El tutor no tiene otra sesión solapada
+5. El estudiante no tiene otra sesión solapada
+6. El saldo del estudiante cubre el precio
+
+Si todas pasan, **una sola transacción** crea la sesión, mueve el importe de `balance` a
+`frozen` y escribe el movimiento. No existe el estado intermedio en el que la sesión está
+creada pero el dinero no se apartó.
+
+El orden importa: se valida lo barato antes que lo caro, y la zona horaria es explícita
+porque una universidad opera en una zona concreta, no en UTC.
+
+### Capas con responsabilidades estrictas
+
+El backend sigue **módulo → rutas → controlador → servicio**. Las rutas declaran los
+middleware de autenticación y rol; los controladores solo traducen HTTP a llamadas de
+servicio y dan forma a la respuesta; los servicios contienen toda la lógica de negocio y las
+transacciones de Prisma.
+
+Toda respuesta usa el mismo sobre, con éxito o sin él:
+
+```json
+{ "success": true, "message": "Success", "data": {} }
+```
+
+El cliente nunca tiene que adivinar la forma de lo que recibe.
+
+### La IA sugiere, no decide
+
+Dos usos de `gpt-4o-mini`, ambos acotados. Las **recomendaciones** construyen el prompt con
+la carrera, el trimestre, el promedio y las últimas diez asignaturas del estudiante, más
+hasta veinte tutores activos, y piden tres con una razón corta cada uno; la respuesta JSON se
+parsea y se **enriquece con los registros reales** de la base de datos. El **resumen de
+reseñas** condensa las últimas veinte en tres frases como máximo.
+
+En los dos casos el modelo ordena o resume datos que ya existen. No inventa tutores ni fija
+precios.
+
+## Resultado
+
+Cuatro roles con panel propio: estudiante, tutor, universidad y administrador. La universidad
+gestiona facultades y asignaturas, y puede recargar un saldo institucional para subsidiar a
+sus estudiantes.
+
+Las videollamadas van sobre Jitsi Meet, con la sala generada en el momento de reservar, así
+que el enlace existe desde antes de que empiece la sesión.

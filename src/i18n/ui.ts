@@ -36,6 +36,31 @@ const es = {
 
   'soon.title': 'En construcción',
   'soon.body': 'Esta sección llega en un sprint próximo.',
+
+  'projects.lead': 'Doce proyectos en cuatro ecosistemas. Filtra por el que te interese.',
+  'projects.filter': 'Filtrar por ecosistema',
+  'projects.all': 'Todos',
+  'projects.empty': 'No hay proyectos con ese filtro.',
+  'projects.caseStudy': 'Caso de estudio',
+  'projects.readCase': 'Leer el caso',
+  'projects.viewProject': 'Ver proyecto',
+  'projects.back': 'Volver a proyectos',
+
+  'project.role': 'Alcance',
+  'project.year': 'Año',
+  'project.stack': 'Tecnologías',
+  'project.repos': 'Repositorios',
+  'project.highlights': 'Lo destacable',
+  'project.live': 'Ver en vivo',
+  'project.status': 'Estado',
+  'project.status.active': 'En desarrollo',
+  'project.status.completed': 'Terminado',
+  'project.status.archived': 'Archivado',
+
+  'category.web': 'Web',
+  'category.mobile': 'Móvil',
+  'category.api': 'API',
+  'category.desktop': 'Escritorio',
 } as const;
 
 const en = {
@@ -76,6 +101,32 @@ const en = {
 
   'soon.title': 'Under construction',
   'soon.body': 'This section ships in an upcoming sprint.',
+
+  'projects.lead':
+    'Twelve projects across four ecosystems. Filter by the one you care about.',
+  'projects.filter': 'Filter by ecosystem',
+  'projects.all': 'All',
+  'projects.empty': 'No projects match that filter.',
+  'projects.caseStudy': 'Case study',
+  'projects.readCase': 'Read the case',
+  'projects.viewProject': 'View project',
+  'projects.back': 'Back to projects',
+
+  'project.role': 'Scope',
+  'project.year': 'Year',
+  'project.stack': 'Tech stack',
+  'project.repos': 'Repositories',
+  'project.highlights': 'Highlights',
+  'project.live': 'View live',
+  'project.status': 'Status',
+  'project.status.active': 'In progress',
+  'project.status.completed': 'Completed',
+  'project.status.archived': 'Archived',
+
+  'category.web': 'Web',
+  'category.mobile': 'Mobile',
+  'category.api': 'API',
+  'category.desktop': 'Desktop',
 } as const satisfies Record<keyof typeof es, string>;
 
 export const ui = { es, en } as const;

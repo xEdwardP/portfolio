@@ -1,0 +1,37 @@
+---
+title: FireWalk Inventory
+summary: Multi-branch inventory with batch traceability. Every unit in stock traces back to its batch, supplier, branch and originating purchase.
+role: Full application
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - Livewire 3
+  - AdminLTE 3
+  - Bootstrap 4.6
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 8
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/Firewalk
+highlights:
+  - Every unit traceable to batch, supplier, branch and purchase
+  - Atomic stock intake when a purchase is finalised
+---
+
+Operational back office for retail and distribution businesses, covering the full supply
+cycle.
+
+A purchase order is created for a supplier and its line items are added interactively: each
+line generates **its own batch**, with its own expiration date and prices. The order is
+emailed to the supplier, and once the goods arrive, finalising the purchase registers stock
+into a specific branch and writes the matching inventory movement **in a single atomic
+operation**.
+
+The result is that no quantity in stock is anonymous: it traces back to its batch, its
+supplier, its branch and the purchase that brought it in. That is what makes it possible to
+respond to an expiration or a defective batch without auditing the whole inventory.

@@ -1,0 +1,90 @@
+---
+title: SpendWise
+summary: App móvil de control de gastos en Flutter que lee el total de un ticket con la cámara. El OCR corre entero en el dispositivo, sin enviar la foto a ningún servidor.
+role: Aplicación móvil completa
+tier: case-study
+ecosystem: flutter
+category: mobile
+stack:
+  - Flutter 3.35
+  - Dart 3.10
+  - Firebase Auth
+  - Cloud Firestore
+  - Firebase Storage
+  - Google ML Kit
+year: 2025
+status: completed
+featured: true
+order: 4
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/SpendWise
+highlights:
+  - OCR de tickets ejecutado en el dispositivo, sin subir la imagen
+  - Heurística de dos pasadas para extraer el importe
+  - Paginación por cursor sobre Firestore
+---
+
+## El problema
+
+Registrar un gasto a mano es tan tedioso que la gente deja de hacerlo, y una app de finanzas
+sin datos no sirve para nada. La fricción no está en la aritmética: está en teclear el monto
+cada vez.
+
+La solución obvia es leerlo del ticket con la cámara. La solución obvia trae dos problemas
+menos obvios: subir fotos de tus compras a un servidor ajeno es un problema de privacidad, y
+el OCR falla lo suficiente como para no poder depender de él.
+
+## Decisiones de arquitectura
+
+### El reconocimiento no sale del teléfono
+
+El OCR usa **Google ML Kit Text Recognition en el dispositivo**. Ninguna imagen se envía a un
+servidor para ser reconocida. La foto solo llega a Firebase Storage si el usuario decide
+adjuntarla al movimiento, y eso es una acción distinta del reconocimiento.
+
+Además de la privacidad, esto significa que escanear funciona sin conexión y sin coste por
+llamada.
+
+### Dos pasadas, y el fallo no bloquea
+
+Extraer "el total" de un ticket es un problema difuso: cada comercio imprime distinto. La
+heurística de `OcrService.extractTotal` hace dos pasadas:
+
+1. **Por palabra clave.** Recorre cada línea buscando `total`, `total a pagar`, `importe`,
+   `saldo` o `monto`, y devuelve el primer importe que encaje con `(\d{2,4}[.,]\d{2})`.
+2. **Por patrón.** Si ninguna línea tiene palabra clave, devuelve el primer importe que
+   encaje con ese mismo patrón en cualquier parte del texto reconocido.
+
+Si las dos fallan, devuelve `null`. Y aquí está la decisión importante: **el flujo nunca se
+bloquea**. La interfaz muestra un aviso y el usuario teclea el monto a mano, exactamente como
+si el escaneo no existiera. La cámara es un acelerador, no un requisito.
+
+El límite es conocido y está documentado: el patrón exige entre 2 y 4 dígitos antes del
+separador decimal, así que importes por debajo de 10.00 o por encima de 9999.99 no se
+detectan solos.
+
+### Capas sin librería de estado
+
+La app usa una separación **vista → controlador → servicio → modelo**, sin ningún paquete de
+gestión de estado. Las pantallas son `StatefulWidget` que llaman a controladores, y los datos
+en vivo llegan por `StreamBuilder`.
+
+Es una decisión deliberada de proporción: para el tamaño de esta aplicación, añadir un gestor
+de estado habría sido más ceremonia que beneficio. Los servicios (`OcrService`,
+`StorageService`) sí quedan aislados, que es donde la separación paga de verdad — el OCR se
+puede sustituir sin tocar una sola pantalla.
+
+### Paginación por cursor
+
+El historial usa `startAfterDocument` / `startAtDocument` de Firestore en lugar de traer la
+colección y cortarla en cliente. El coste de lectura no crece con la antigüedad de la cuenta.
+
+## Resultado
+
+Una app para Android e iOS con autenticación por correo y con Google, registro de ingresos y
+gastos por categoría, historial paginado, resumen mensual con totales de ingreso, gasto y
+balance, y adjuntar foto del ticket.
+
+La captura por cámara reduce el registro de un gasto a apuntar y confirmar, con la
+introducción manual siempre disponible como camino alterno.

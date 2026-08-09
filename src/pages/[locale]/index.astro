@@ -4,6 +4,8 @@ import BaseLayout from '@/shared/layouts/BaseLayout.astro';
 import Button from '@/shared/components/ui/Button.astro';
 import Card from '@/shared/components/ui/Card.astro';
 import Section from '@/shared/components/ui/Section.astro';
+import ProjectGrid from '@/features/projects/components/ProjectGrid.astro';
+import { getFeaturedProjects } from '@/features/projects/queries';
 import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
@@ -14,6 +16,7 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
+const featured = await getFeaturedProjects(locale);
 ---
 
 <BaseLayout>
@@ -35,6 +38,17 @@ const t = useTranslations(locale);
         {t('home.cta.contact')}
       </Button>
     </div>
+  </Section>
+
+  <Section width="wide" title={t('home.featured')}>
+    <ProjectGrid projects={featured} locale={locale} />
+    <a
+      href={localizePath('/projects', locale)}
+      class="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-accent"
+    >
+      {t('home.cta.projects')}
+      <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
+    </a>
   </Section>
 
   <Section width="wide" title={t('home.stack')}>

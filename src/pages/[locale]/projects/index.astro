@@ -1,6 +1,10 @@
 ---
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
-import ComingSoon from '@/shared/components/ComingSoon.astro';
+import Section from '@/shared/components/ui/Section.astro';
+import ProjectGrid from '@/features/projects/components/ProjectGrid.astro';
+import ProjectFilter from '@/features/projects/islands/ProjectFilter';
+import { countByEcosystem, getProjects } from '@/features/projects/queries';
+import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
 import { useTranslations } from '@/i18n/utils';
 
@@ -10,8 +14,39 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
+const projects = await getProjects(locale);
+const counts = countByEcosystem(projects);
+
+const options = ecosystems
+  .filter((ecosystem) => counts[ecosystem.id] > 0)
+  .map((ecosystem) => ({
+    id: ecosystem.id,
+    label: ecosystem.label,
+    count: counts[ecosystem.id],
+  }));
 ---
 
-<BaseLayout title={t('nav.projects')}>
-  <ComingSoon locale={locale} title={t('nav.projects')} />
+<BaseLayout title={t('nav.projects')} description={t('projects.lead')}>
+  <Section width="wide">
+    <h1 class="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+      {t('nav.projects')}
+    </h1>
+    <p class="mt-3 max-w-xl text-muted">{t('projects.lead')}</p>
+
+    <div class="mt-8">
+      <ProjectFilter
+        client:idle
+        options={options}
+        allLabel={t('projects.all')}
+        legend={t('projects.filter')}
+      />
+    </div>
+
+    <div class="mt-8">
+      <ProjectGrid projects={projects} locale={locale} />
+      <p hidden data-projects-empty class="py-12 text-center text-muted">
+        {t('projects.empty')}
+      </p>
+    </div>
+  </Section>
 </BaseLayout>

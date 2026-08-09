@@ -1,0 +1,37 @@
+---
+title: VentasHN
+summary: Punto de venta e inventario para PYMEs hondureñas, con carrito de caja en sesión, recibos en PDF y un panel de diez gráficas interactivas.
+role: Aplicación completa
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - Blade
+  - Bootstrap 5
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 10
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/VentasHN
+highlights:
+  - Diseñado para el contexto hondureño, incluido el RTN de 14 dígitos
+  - Dos roles aplicados con Gates de Laravel y middleware propio
+---
+
+Ciclo completo de venta minorista: catálogo e inventario, clientes, proveedores, venta en caja
+con carrito en sesión, recibos imprimibles en PDF, reportes con filtros geográficos y un panel
+de inteligencia de negocio con diez gráficas interactivas.
+
+Lo que lo separa de un POS genérico es que **está hecho para un contexto concreto**. La
+geografía sembrada cubre Centroamérica y el campo de documento del cliente está diseñado para
+el **RTN hondureño de 14 dígitos**, no para un identificador abstracto. La interfaz está en
+español por configuración, no por traducción.
+
+El acceso se controla con dos roles, `admin` y `cajero`, aplicados mediante Gates de Laravel y
+un middleware propio. Es un monolito MVC clásico —controladores, modelos Eloquent y vistas
+Blade— y esa fue la decisión correcta para el tamaño del problema.

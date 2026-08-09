@@ -1,0 +1,78 @@
+---
+title: TwinBay Parking
+summary: Sistema de gestión de parqueos en Laravel 12 donde la facturación por tiempo aplica tolerancia escalonada y cambia de tarifa sola cuando la estadía supera el día.
+role: Aplicación completa
+tier: case-study
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - AdminLTE 3
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 6
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/TwinBay
+highlights:
+  - Tolerancia escalonada según horas transcurridas
+  - Cambio automático a tarifa diaria en estadías largas
+  - Facturas con QR y reportes PDF diarios, semanales y mensuales
+---
+
+## El problema
+
+Cobrar por tiempo parece aritmética simple hasta que te enfrentas a los bordes reales de un
+parqueo. ¿Se le cobra una hora entera a quien sale a los 62 minutos? ¿Y a quien deja el
+vehículo cuatro días — cuatro días de tarifa por hora?
+
+Un sistema que responda mal a esas dos preguntas genera reclamos en el mostrador todos los
+días. Y las reglas no pueden vivir en la cabeza del cajero: tienen que estar en el sistema, o
+cada turno cobra distinto.
+
+## Decisiones de arquitectura
+
+### La tolerancia escala con la estadía
+
+El cobro por horas aplica un periodo de gracia que **crece con el tiempo transcurrido**:
+
+| Horas transcurridas | Tolerancia |
+| ------------------- | ---------- |
+| 1–8                 | 10 minutos |
+| 9–18                | 15 minutos |
+| 19–23               | 20 minutos |
+
+La lógica detrás es proporcional: unos minutos de más pesan mucho en una estadía corta y muy
+poco en una larga. Una tolerancia fija de 10 minutos sería injusta arriba; una de 20 sería
+regalar dinero abajo.
+
+### La tarifa se corrige sola
+
+Si la estadía abarca uno o más días completos, el ticket **cambia automáticamente a la tarifa
+diaria** al cerrarse. El cliente que deja el auto el fin de semana no paga 72 horas sueltas.
+
+Es una regla de negocio incrustada en el cierre de ticket, no una decisión que se le deje al
+operador.
+
+### El estado vive en el ticket, no en la pantalla
+
+Abrir un ticket exige espacio, vehículo y tarifa existentes, y se rechaza si el vehículo ya
+tiene uno `activo` — la validación que impide cobrar dos veces el mismo carro. El cliente se
+**deriva del vehículo**, no se teclea, así que no hay forma de asociar una estadía al cliente
+equivocado.
+
+El espacio pasa a `ocupado` en la misma operación, y el número de ticket se genera de forma
+correlativa. Mientras el vehículo está dentro, un endpoint devuelve el importe estimado en
+vivo para consultarlo desde el mostrador sin cerrar nada.
+
+## Resultado
+
+Operación completa de un parqueo: alta de clientes y vehículos, asignación de espacios,
+apertura y cierre de tickets, tarifas por tiempo, facturas con código QR y reportes en PDF
+diarios, semanales y mensuales.
+
+Todo detrás de autenticación, con roles y permisos que separan quién opera el mostrador de
+quién consulta los reportes.

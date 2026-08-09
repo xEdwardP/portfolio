@@ -1,0 +1,37 @@
+---
+title: VentasHN
+summary: Point of sale and inventory for Honduran SMEs, with a session-based cashier cart, PDF receipts and a dashboard of ten interactive charts.
+role: Full application
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - Blade
+  - Bootstrap 5
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 10
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/VentasHN
+highlights:
+  - Built for the Honduran context, including the 14-digit RTN
+  - Two roles enforced through Laravel Gates and custom middleware
+---
+
+The full retail sales cycle: product catalog and inventory, customers, suppliers, cashier
+sales with a session-based cart, printable PDF receipts, reports with geographic filters, and
+a business-intelligence dashboard with ten interactive charts.
+
+What separates it from a generic POS is that **it is built for a specific context**. Seeded
+geography covers Central America and the customer document field is designed for the
+**14-digit Honduran RTN**, not an abstract identifier. The interface is Spanish by
+configuration, not by translation.
+
+Access is controlled by two roles, `admin` and `cajero`, enforced through Laravel Gates and
+custom middleware. It is a classic MVC monolith — controllers, Eloquent models and Blade
+views — and that was the right call for the size of the problem.

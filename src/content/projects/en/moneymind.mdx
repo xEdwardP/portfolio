@@ -1,0 +1,73 @@
+---
+title: MoneyMind
+summary: A personal finance manager on Laravel 12 and Filament 3, where budgets update themselves through a model observer instead of being recalculated on every read.
+role: Full application
+tier: case-study
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - Filament 3.3
+  - PHP 8.2
+  - MySQL 8
+  - Tailwind CSS 4
+year: 2025
+status: completed
+featured: true
+order: 5
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/MoneyMind
+highlights:
+  - Budgets updated by a model observer, not on read
+  - A complete admin panel without hand-writing CRUD
+  - Typed categories that constrain which movements are valid
+---
+
+## The problem
+
+A personal finance app is, underneath, a CRUD with charts. The risk is not complexity: it is
+spending weeks building create-edit-delete screens that have been solved a thousand times,
+and arriving late to the only thing that matters — the numbers adding up.
+
+There is also a specific trap: a budget's accumulated spend. It is easy to compute it by
+summing transactions every time someone opens the screen. It is easy, and it is why the panel
+gets slow once history grows.
+
+## Architecture decisions
+
+### Filament for everything already solved
+
+The entire application is delivered through a **Filament 3.3** panel. Authentication, CRUD,
+filters, notifications and charts come out of the box.
+
+This is not laziness — it is a choice about where effort goes. Hand-writing category forms
+does not differentiate the product. Budgets working correctly does, and that is where the
+custom code lives.
+
+### Spend accumulates on write, not on read
+
+When a transaction of type `gasto` is created, a **model observer** looks for a budget
+matching the same user and category within the current month, and increments its
+`spentAmount` field.
+
+The budget stores its own total. Reading it is reading a column, not aggregating a table.
+Query cost does not grow with account age, and the dashboard chart does not degrade with use.
+
+The honest counterweight: the total is derived data that now lives duplicated, so it depends
+on the observer always firing. That is the classic trade-off, taken deliberately.
+
+### Typed categories
+
+Every category is declared as `ingreso` or `gasto`. It is not a decorative label: it is what
+lets the observer know which movements affect a budget, and what keeps panel filters and
+colour coding coherent without extra logic on each screen.
+
+## Outcome
+
+Movement entries with amount, category, rich-text description, receipt photo and date.
+Monthly budget per user and category, with accumulated spend tracking itself. A dashboard
+with stat cards and monthly line charts for income and expenses.
+
+The application is pinned to Spanish in `config/app.php`: the product speaks one language
+even though its documentation is bilingual.

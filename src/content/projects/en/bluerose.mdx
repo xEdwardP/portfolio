@@ -1,0 +1,38 @@
+---
+title: BlueRose Ecommerce
+summary: 'An online store with an administrative back office, built on a service-oriented architecture: thin controllers, validation in Form Requests and logic in reusable classes.'
+role: Full application
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - Bootstrap 5
+  - Vite 7
+  - PayPal Checkout
+year: 2025
+status: completed
+featured: false
+order: 9
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/BlueRose_Ecommerce
+highlights:
+  - Every unit of business logic encapsulated in a reusable service
+  - Validation isolated in Form Requests, outside the controller
+---
+
+A public storefront and an admin back office on the same foundation, organised around a
+strict separation of responsibilities.
+
+Controllers stay thin: they neither validate nor decide, they only orchestrate. Validation
+lives in dedicated **Form Requests**, and every unit of business logic is encapsulated in a
+**reusable service class**.
+
+It is the same idea I apply in the .NET projects with Repository and Unit of Work, expressed
+in Laravel's own conventions: the goal is not following a pattern by name, but making sure
+that adding a feature never requires reading a three-hundred-line controller to find where to
+touch.
+
+Payments go through PayPal Checkout.

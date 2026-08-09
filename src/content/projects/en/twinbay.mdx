@@ -1,0 +1,77 @@
+---
+title: TwinBay Parking
+summary: A parking management system on Laravel 12 where time-based billing applies a tiered grace period and switches rate automatically once a stay passes a full day.
+role: Full application
+tier: case-study
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - AdminLTE 3
+  - MySQL 8
+year: 2025
+status: completed
+featured: false
+order: 6
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/TwinBay
+highlights:
+  - Grace period tiered by elapsed hours
+  - Automatic switch to the daily rate on long stays
+  - QR-coded invoices and daily, weekly and monthly PDF reports
+---
+
+## The problem
+
+Charging for time looks like simple arithmetic until you hit the real edges of a parking lot.
+Do you bill a full hour to someone leaving at 62 minutes? What about someone who leaves a car
+for four days — four days of hourly rate?
+
+A system that answers those two questions badly generates disputes at the counter every day.
+And the rules cannot live in the cashier's head: they have to live in the system, or every
+shift charges differently.
+
+## Architecture decisions
+
+### The grace period scales with the stay
+
+Hourly billing applies a grace period that **grows with elapsed time**:
+
+| Elapsed hours | Grace      |
+| ------------- | ---------- |
+| 1–8           | 10 minutes |
+| 9–18          | 15 minutes |
+| 19–23         | 20 minutes |
+
+The reasoning is proportional: a few extra minutes weigh heavily on a short stay and barely
+at all on a long one. A fixed 10-minute grace would be unfair at the top; a fixed 20 would be
+giving money away at the bottom.
+
+### The rate corrects itself
+
+If a stay spans one or more full days, the ticket **switches automatically to the daily
+rate** on close. The customer who leaves a car over the weekend does not pay 72 loose hours.
+
+That is a business rule embedded in ticket closing, not a decision left to the operator.
+
+### State lives on the ticket, not on the screen
+
+Opening a ticket requires an existing space, vehicle and rate, and is rejected if the vehicle
+already has an `activo` one — the validation that prevents billing the same car twice. The
+customer is **derived from the vehicle**, never typed in, so there is no way to attach a stay
+to the wrong customer.
+
+The space flips to `ocupado` in the same operation, and the ticket number is generated
+sequentially. While the vehicle is inside, an endpoint returns a live estimate of the amount
+due so the counter can check it without closing anything.
+
+## Outcome
+
+End-to-end parking operation: customer and vehicle registration, space assignment, ticket
+opening and closing, time-based rates, QR-coded invoices, and daily, weekly and monthly PDF
+reports.
+
+All behind authentication, with roles and permissions separating who operates the counter
+from who reads the reports.

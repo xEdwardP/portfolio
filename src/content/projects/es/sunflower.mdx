@@ -1,0 +1,42 @@
+---
+title: Sunflower
+summary: Punto de venta de escritorio en .NET 10 y Windows Forms, con arquitectura de tres capas e inyección de dependencias sobre el Generic Host.
+role: Aplicación de escritorio completa
+tier: card
+ecosystem: dotnet
+category: desktop
+stack:
+  - .NET 10
+  - Windows Forms
+  - C#
+  - SQL Server
+  - ADO.NET
+year: 2026
+status: completed
+featured: false
+order: 12
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/Sunflower
+highlights:
+  - Tres capas con dependencia estrictamente unidireccional
+  - Inyección de dependencias en WinForms mediante el Generic Host
+---
+
+Punto de venta e inventario de escritorio para pequeñas y medianas empresas. Es el único
+proyecto de escritorio del portafolio, y está aquí precisamente por eso: las restricciones de
+WinForms son distintas a las de la web y obligan a decisiones distintas.
+
+La arquitectura es de **tres capas con flujo de dependencia estrictamente unidireccional**:
+`Presentation` → `Services` → `Repository` → SQL Server. La capa de presentación **nunca**
+habla con la base de datos; consume interfaces de servicio, que a su vez delegan en interfaces
+de repositorio.
+
+Eso importa más en WinForms que en una web, porque el formulario es el sitio donde
+tradicionalmente se acumula todo. Aquí la inyección de dependencias la aporta el **Generic
+Host de .NET**, así que los formularios reciben sus servicios en el constructor en vez de
+instanciarlos, y el acceso a datos usa ADO.NET contra procedimientos almacenados.
+
+Cubre el ciclo completo: catálogos, control de stock, venta con facturación automática,
+historial, reportes de rentabilidad, administración de usuarios con menús por rol y perfil de
+negocio con logo alojado en la nube.

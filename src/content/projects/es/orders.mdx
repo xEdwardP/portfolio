@@ -1,0 +1,97 @@
+---
+title: Orders
+summary: Plataforma de comercio electrónico en .NET 8 con Blazor WebAssembly, construida sobre Controller → Unit of Work → Repository con implementaciones genéricas por capa.
+role: Aplicación completa — API, SPA y pruebas
+tier: case-study
+ecosystem: dotnet
+category: web
+stack:
+  - .NET 8
+  - ASP.NET Core
+  - Blazor WebAssembly
+  - Entity Framework Core
+  - SQL Server
+  - Azure Blob Storage
+  - MSTest
+year: 2025
+status: completed
+featured: true
+order: 3
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/Orders
+highlights:
+  - Cadena Controller → Unit of Work → Repository con genéricos por capa
+  - Los errores viajan como datos, no como excepciones
+  - Cuatro proyectos con contratos compartidos entre API y SPA
+---
+
+## El problema
+
+Un catálogo con carrito y pedidos tiene una decena de entidades —categorías, productos,
+países, estados, ciudades, usuarios, pedidos— y todas necesitan lo mismo: listar con
+paginación, buscar, crear, editar y borrar. Escribir ese código trece veces es la forma más
+rápida de que trece endpoints se comporten de trece maneras distintas.
+
+Y hay una segunda mitad: confirmar un pedido no es insertar una fila. Hay que validar stock,
+crear las líneas de detalle, descontar existencias y vaciar el carrito, todo o nada.
+
+## Decisiones de arquitectura
+
+### Genéricos por capa, no copiar y pegar
+
+El backend sigue una cadena explícita: **Controller → Unit of Work → Repository → DbContext**,
+con una implementación genérica en cada nivel y subclases solo donde hace falta
+comportamiento extra.
+
+`GenericController<T>` expone `GET /full`, `GET`, `GET /totalPages`, `GET /{id}`, `POST`,
+`PUT` y `DELETE /{id}`. Los controladores concretos heredan y **sobrescriben únicamente lo
+que difiere**. `GenericRepository<T>` y `GenericUnitOfWork<T>` aportan el CRUD con
+paginación, y `QueryableExtensions.Paginate` centraliza el `Skip`/`Take` que usan todos los
+repositorios.
+
+El Unit of Work no está por ceremonia: es lo que permite que `ProcessOrderAsync` valide
+stock, cree los `OrderDetail`, descuente `Product.Stock` y limpie el carrito como una sola
+operación coherente.
+
+### Los errores son datos
+
+Cada operación devuelve `ActionResponse<T>` con `WasSuccess`, `Message` y `Result`. Un
+producto sin stock no lanza una excepción que alguien tenga que acordarse de capturar tres
+capas más arriba: devuelve una respuesta fallida que el controlador traduce a un código HTTP
+y el frontend a un mensaje.
+
+En el lado Blazor existe el espejo: `IRepository` envuelve `HttpClient` y devuelve
+`HttpResponseWrapper<T>`. El mismo contrato mental a ambos lados del cable.
+
+### Un proyecto compartido en vez de DTOs duplicados
+
+La solución son cuatro proyectos: `Orders.Backend` (Web API), `Orders.Frontend` (Blazor
+WebAssembly), `Orders.Shared` (entidades, DTOs y enums) y `Orders.Tests` (MSTest).
+
+Que el SPA y la API compartan `Orders.Shared` significa que un cambio en un DTO **rompe la
+compilación** en lugar de romper la aplicación en producción. Es la ventaja concreta de tener
+el mismo lenguaje en los dos extremos.
+
+### Detalles que suelen olvidarse
+
+`IFileStorage` envuelve Azure Blob Storage con un método de interfaz por defecto,
+`EditFileAsync`, que borra el blob anterior antes de subir el nuevo — el descuido habitual
+que llena la cuenta de imágenes huérfanas.
+
+`AuthenticationProviderJWT` guarda el token, parsea sus claims y alimenta el
+`AuthenticationStateProvider` de Blazor, de modo que la autorización por rol funciona en el
+cliente con el mismo criterio que en el servidor.
+
+## Resultado
+
+Cliente y administrador sobre la misma base: catálogo público con paginación, búsqueda y
+filtro por categoría, carrito, confirmación con validación de stock e historial de pedidos;
+CRUD completo de catálogos y control del ciclo de vida de cada pedido
+(`New`, `Dispatched`, `Sent`, `Confirmed`, `Cancelled`).
+
+Todo con autenticación JWT por roles, paginación en servidor en cada listado, correos
+transaccionales por SMTP y Swagger con soporte de `Bearer` en desarrollo.
+
+> El patrón Repository + Unit of Work de este proyecto es el mismo que aplico al acceso a
+> contenido de este portafolio: las páginas nunca consultan la colección directamente.

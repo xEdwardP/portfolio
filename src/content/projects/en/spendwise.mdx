@@ -1,0 +1,88 @@
+---
+title: SpendWise
+summary: A Flutter expense tracker that reads a receipt total with the camera. OCR runs entirely on the device — the photo is never sent to a server for recognition.
+role: Full mobile application
+tier: case-study
+ecosystem: flutter
+category: mobile
+stack:
+  - Flutter 3.35
+  - Dart 3.10
+  - Firebase Auth
+  - Cloud Firestore
+  - Firebase Storage
+  - Google ML Kit
+year: 2025
+status: completed
+featured: true
+order: 4
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/SpendWise
+highlights:
+  - On-device receipt OCR, no image upload
+  - Two-pass heuristic for amount extraction
+  - Cursor-based pagination over Firestore
+---
+
+## The problem
+
+Logging an expense by hand is tedious enough that people stop doing it, and a finance app
+without data is useless. The friction is not in the arithmetic — it is in typing the amount
+every single time.
+
+The obvious fix is reading it off the receipt with the camera. The obvious fix brings two
+less obvious problems: uploading photos of your purchases to someone else's server is a
+privacy problem, and OCR fails often enough that you cannot depend on it.
+
+## Architecture decisions
+
+### Recognition never leaves the phone
+
+OCR uses **Google ML Kit Text Recognition on-device**. No image is sent to a server for
+recognition. The photo only reaches Firebase Storage if the user chooses to attach it to the
+transaction, and that is a separate action from recognition.
+
+Beyond privacy, this means scanning works offline and costs nothing per call.
+
+### Two passes, and failure does not block
+
+Extracting "the total" from a receipt is a fuzzy problem: every merchant prints differently.
+The `OcrService.extractTotal` heuristic runs two passes:
+
+1. **By keyword.** It scans each line for `total`, `total a pagar`, `importe`, `saldo` or
+   `monto`, and returns the first amount matching `(\d{2,4}[.,]\d{2})`.
+2. **By pattern.** If no line carries a keyword, it returns the first amount matching that
+   same pattern anywhere in the recognised text.
+
+If both fail it returns `null`. And here is the decision that matters: **the flow is never
+blocked**. The UI shows a hint and the user types the amount by hand, exactly as if scanning
+did not exist. The camera is an accelerator, not a requirement.
+
+The limitation is known and documented: the pattern requires 2 to 4 digits before the decimal
+separator, so amounts below 10.00 or above 9999.99 are not auto-detected.
+
+### Layers without a state-management library
+
+The app uses a **view → controller → service → model** separation, with no state-management
+package at all. Screens are `StatefulWidget`s calling controllers, and live data arrives
+through `StreamBuilder`.
+
+That is a deliberate call about proportion: at this application's size, adding a state
+manager would have been more ceremony than benefit. The services (`OcrService`,
+`StorageService`) _are_ isolated, which is where the separation actually pays — OCR can be
+swapped without touching a single screen.
+
+### Cursor-based pagination
+
+History uses Firestore's `startAfterDocument` / `startAtDocument` rather than fetching the
+collection and slicing it on the client. Read cost does not grow with account age.
+
+## Outcome
+
+An Android and iOS app with email and Google authentication, income and expense entries by
+category, paginated history, a monthly summary with income, expense and balance totals, and
+receipt photo attachments.
+
+Camera capture reduces logging an expense to point and confirm, with manual entry always
+available as the alternative path.

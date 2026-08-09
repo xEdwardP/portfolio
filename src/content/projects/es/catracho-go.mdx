@@ -1,0 +1,108 @@
+---
+title: Catracho GO
+summary: Plataforma de ride-hailing para Honduras con tres roles, cálculo geoespacial de tarifas y billetera con pagos reales. API, web y app móvil.
+role: API, panel web y aplicación móvil
+tier: case-study
+ecosystem: node
+category: web
+stack:
+  - NestJS 11
+  - Prisma 7
+  - PostgreSQL 17
+  - PostGIS 3.5
+  - React 19
+  - React Native
+  - Expo
+  - TypeScript
+year: 2026
+status: active
+featured: true
+order: 1
+repos:
+  - label: API
+    url: https://github.com/xEdwardP/catrachogo-api
+  - label: Web
+    url: https://github.com/xEdwardP/catrachogo-web
+  - label: Mobile
+    url: https://github.com/xEdwardP/catrachogo-mobile
+highlights:
+  - Tarifas geoespaciales con PostGIS y respaldo ante caída de la API de rutas
+  - Tres clientes distintos contra una sola API
+  - Billetera con PayPal, comisión de plataforma y retiros
+---
+
+## El problema
+
+Una plataforma de viajes tipo ride-hailing no es un CRUD. Tiene que decidir cuánto cuesta un
+viaje **antes** de que exista, emparejar conductores en tiempo real, mover dinero real entre
+tres partes y seguir funcionando cuando un servicio externo falla. Y tiene tres tipos de
+usuario con necesidades opuestas: el pasajero quiere pedir rápido, el conductor quiere
+maximizar ingresos y el administrador necesita control sobre ambos.
+
+El reto adicional era el alcance: **la misma funcionalidad completa en navegador y en app
+nativa**, para los tres roles, sin duplicar reglas de negocio.
+
+## Decisiones de arquitectura
+
+### Una API, tres clientes
+
+Toda la lógica vive en `catrachogo-api` (NestJS 11). Ni la web ni la app móvil contienen
+reglas de negocio: calculan cero tarifas y validan cero transiciones de estado. Consumen los
+mismos endpoints.
+
+La consecuencia práctica es que una regla de negocio se cambia en un sitio. Si el periodo de
+gracia del no-show pasa de 5 a 3 minutos, ninguno de los dos clientes se entera.
+
+La única concesión a la plataforma es la **expiración del token**: una pestaña de navegador
+y una app instalada no merecen la misma sesión. El cliente envía `X-Client-Platform` y el
+backend firma con `JWT_EXPIRES_IN` (7 días) o `JWT_EXPIRES_IN_MOBILE` (30 días).
+
+### Geografía en la base de datos, no en el código
+
+Las tarifas dependen de distancia, y la distancia sobre un mapa no es aritmética. En vez de
+resolverlo en TypeScript, el cálculo vive en **PostgreSQL 17 con PostGIS 3.5**: distancia
+real, radio de búsqueda de conductores y validación de que el punto está dentro del polígono
+de Honduras.
+
+Para la distancia por carretera se usa la **Google Directions API**. Pero una API externa
+puede caerse, y un viaje que no se puede cotizar es un viaje perdido. Por eso hay un
+respaldo: si Directions falla, se usa `ST_Distance` de PostGIS multiplicado por 1.3, un
+factor que aproxima el desvío de la ruta real frente a la línea recta. La estimación pierde
+precisión, pero la plataforma **sigue vendiendo viajes**.
+
+### El dinero como estado, no como efecto secundario
+
+Completar un viaje, cancelarlo con cargo o reportar un no-show mueven saldo hacia la
+billetera de la plataforma. Esa billetera es un usuario real del sistema
+(`PLATFORM_USER_ID`), no una columna suelta: la comisión es una transferencia entre
+billeteras y queda en el mismo historial auditable que cualquier otro movimiento.
+
+Las recargas entran por **PayPal Checkout** y los retiros de conductor salen por el mismo
+canal. Los conductores no pueden recargar — solo cobrar.
+
+### Seguridad por capas
+
+Contraseñas con **Argon2id**, no bcrypt. `ValidationPipe` global con `whitelist` y
+`forbidNonWhitelisted`, de modo que un campo no declarado en el DTO no llega al servicio.
+`helmet` para cabeceras y `@nestjs/throttler` con límite global más límite reforzado en
+`login` y `register`.
+
+Las imágenes se suben desde el cliente directo a **Cloudinary**, así que el backend nunca
+procesa archivos. Pero sí valida que la URL pertenezca a `res.cloudinary.com` y llama a la
+API de Cloudinary para borrar la foto anterior cuando se reemplaza — evitando la fuga de
+almacenamiento típica de este patrón.
+
+## Resultado
+
+Tres aplicaciones —API, web y móvil— cubriendo los tres roles de la plataforma con un solo
+origen de verdad.
+
+En el frontend web, las vistas de pasajero y conductor no son una app móvil estirada: por
+encima del breakpoint de escritorio usan un layout real de aplicación web, con panel de
+información junto al mapa y listas tipo tabla. Por debajo, se mantiene el diseño móvil.
+
+El panel de administración calcula sus KPIs —viajes activos, ingresos del día, conductores
+disponibles, retiros pendientes— en **un único endpoint agregado** en el backend, en lugar de
+disparar cinco consultas desde el navegador.
+
+> Proyecto académico desarrollado en equipo bajo el nombre "Los Inges".

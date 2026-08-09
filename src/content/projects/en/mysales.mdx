@@ -1,0 +1,35 @@
+---
+title: MySales
+summary: Point of sale and inventory management for retail, with supplier purchases, stock control and printable PDF receipts.
+role: Full application
+tier: card
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - PHP 8.2
+  - Blade
+  - Bootstrap 5
+  - Vite 6
+year: 2025
+status: completed
+featured: false
+order: 11
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/MySales
+highlights:
+  - Permissions drive both access and the visible navigation
+  - Amounts in lempiras, fitted to local retail
+---
+
+Day-to-day operation of a retail business: product catalog and stock, suppliers, purchases,
+users, and over-the-counter sales with printable PDF receipts.
+
+The application is organised around two roles, `admin` and `cajero`, enforced by custom
+middleware and authorization gates. The detail worth pointing out is that **those same gates
+drive the sidebar navigation**: a cashier never sees links that would return a 403. The
+permission is a single source of truth, not a rule duplicated between the backend and the
+template.
+
+The interface is in Spanish and amounts display in Honduran lempiras.

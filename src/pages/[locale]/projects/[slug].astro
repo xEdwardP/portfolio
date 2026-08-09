@@ -1,0 +1,136 @@
+---
+import { render } from 'astro:content';
+import { Icon } from 'astro-icon/components';
+import BaseLayout from '@/shared/layouts/BaseLayout.astro';
+import Section from '@/shared/components/ui/Section.astro';
+import Badge from '@/shared/components/ui/Badge.astro';
+import Button from '@/shared/components/ui/Button.astro';
+import Prose from '@/shared/components/ui/Prose.astro';
+import { ecosystems } from '@/data/profile';
+import { locales, type Locale } from '@/i18n/config';
+import { localizePath, useTranslations } from '@/i18n/utils';
+import { getProjects, slugOf } from '@/features/projects/queries';
+
+export async function getStaticPaths() {
+  const paths = await Promise.all(
+    locales.map(async (locale) => {
+      const projects = await getProjects(locale);
+      return projects.map((project) => ({
+        params: { locale, slug: slugOf(project) },
+        props: { project },
+      }));
+    })
+  );
+
+  return paths.flat();
+}
+
+const locale = Astro.params.locale as Locale;
+const { project } = Astro.props;
+const t = useTranslations(locale);
+const { data } = project;
+const { Content } = await render(project);
+
+const ecosystem = ecosystems.find((item) => item.id === data.ecosystem);
+const statusKey = `project.status.${data.status}` as const;
+---
+
+<BaseLayout title={data.title} description={data.summary}>
+  <Section width="prose">
+    <a
+      href={localizePath('/projects', locale)}
+      class="inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-text"
+    >
+      <Icon name="lucide:arrow-left" class="size-4" aria-hidden="true" />
+      {t('projects.back')}
+    </a>
+
+    <h1 class="mt-6 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+      {data.title}
+    </h1>
+    <p class="mt-3 text-lg text-muted">{data.summary}</p>
+
+    <dl
+      class="mt-8 grid grid-cols-2 gap-4 border-y border-subtle py-5 text-sm sm:grid-cols-4"
+    >
+      <div>
+        <dt class="text-xs text-muted">{t('project.role')}</dt>
+        <dd class="mt-1 font-medium">{data.role}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">{t('project.year')}</dt>
+        <dd class="mt-1 font-medium">{data.year}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">{t('project.status')}</dt>
+        <dd class="mt-1 font-medium">{t(statusKey)}</dd>
+      </div>
+      <div>
+        <dt class="text-xs text-muted">{t(`category.${data.category}`)}</dt>
+        <dd class="mt-1 font-medium">
+          {
+            ecosystem && (
+              <span class:list={['inline-flex items-center gap-1.5', ecosystem.color]}>
+                <Icon name={ecosystem.icon} class="size-4" aria-hidden="true" />
+                {ecosystem.label}
+              </span>
+            )
+          }
+        </dd>
+      </div>
+    </dl>
+
+    <div class="mt-6">
+      <h2 class="mb-2 text-xs text-muted">{t('project.stack')}</h2>
+      <div class="flex flex-wrap gap-2">
+        {data.stack.map((tech) => <Badge>{tech}</Badge>)}
+      </div>
+    </div>
+
+    {
+      data.highlights.length > 0 && (
+        <ul class="mt-6 space-y-2">
+          {data.highlights.map((highlight) => (
+            <li class="flex gap-2.5 text-sm text-muted">
+              <Icon
+                name="lucide:check"
+                class="mt-0.5 size-4 shrink-0 text-accent"
+                aria-hidden="true"
+              />
+              {highlight}
+            </li>
+          ))}
+        </ul>
+      )
+    }
+
+    <Prose class="mt-10">
+      <Content />
+    </Prose>
+
+    <div class="mt-10 flex flex-wrap gap-3 border-t border-subtle pt-6">
+      {
+        data.repos.map((repo) => (
+          <Button
+            href={repo.url}
+            variant="secondary"
+            size="sm"
+            rel="noopener"
+            target="_blank"
+          >
+            <Icon name="simple-icons:github" class="size-4" aria-hidden="true" />
+            {repo.label}
+          </Button>
+        ))
+      }
+      {
+        data.liveUrl && (
+          <Button href={data.liveUrl} size="sm" rel="noopener" target="_blank">
+            <Icon name="lucide:external-link" class="size-4" aria-hidden="true" />
+            {t('project.live')}
+          </Button>
+        )
+      }
+    </div>
+  </Section>
+</BaseLayout>

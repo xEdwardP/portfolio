@@ -1,0 +1,75 @@
+---
+title: MoneyMind
+summary: Gestor de finanzas personales sobre Laravel 12 y Filament 3, donde los presupuestos se actualizan solos mediante un observador de modelo en vez de recalcularse al consultarlos.
+role: Aplicación completa
+tier: case-study
+ecosystem: laravel
+category: web
+stack:
+  - Laravel 12
+  - Filament 3.3
+  - PHP 8.2
+  - MySQL 8
+  - Tailwind CSS 4
+year: 2025
+status: completed
+featured: true
+order: 5
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/MoneyMind
+highlights:
+  - Presupuestos actualizados por observador de modelo, no al leer
+  - Panel administrativo completo sin escribir CRUD a mano
+  - Categorías tipadas que restringen los movimientos válidos
+---
+
+## El problema
+
+Una app de finanzas personales es, en el fondo, un CRUD con gráficos. El riesgo no es la
+complejidad: es gastar semanas construyendo pantallas de alta, baja y modificación que ya
+existen resueltas mil veces, y llegar tarde a lo único que importa — que los números cuadren.
+
+Y hay una trampa concreta: el gasto acumulado de un presupuesto. Es fácil calcularlo sumando
+transacciones cada vez que alguien abre la pantalla. Es fácil, y es la razón por la que el
+panel se vuelve lento cuando el historial crece.
+
+## Decisiones de arquitectura
+
+### Filament para todo lo resuelto
+
+La aplicación entera se entrega a través de un panel **Filament 3.3**. Autenticación, CRUD,
+filtros, notificaciones y gráficos vienen de fábrica.
+
+La decisión no es pereza: es dónde poner el esfuerzo. Escribir a mano formularios de
+categorías no diferencia el producto. Lo que sí lo diferencia es que los presupuestos
+funcionen bien, y ahí es donde va el código propio.
+
+### El gasto se acumula al escribir, no al leer
+
+Cuando se crea una transacción de tipo `gasto`, un **observador de modelo** busca el
+presupuesto que coincida con el mismo usuario y categoría dentro del mes en curso, e
+incrementa su campo `spentAmount`.
+
+El presupuesto guarda su propio total. Consultarlo es leer una columna, no agregar una tabla.
+El coste de la consulta no crece con la antigüedad de la cuenta, y el gráfico del dashboard
+no se degrada con el uso.
+
+El contrapeso honesto: el total es un dato derivado que ahora vive duplicado, así que
+depende de que el observador se dispare siempre. Es el intercambio clásico, tomado a
+conciencia.
+
+### Categorías tipadas
+
+Cada categoría se declara como `ingreso` o `gasto`. No es una etiqueta decorativa: es lo que
+permite que el observador sepa qué movimientos afectan a un presupuesto, y lo que hace que
+los filtros y los colores del panel sean coherentes sin lógica adicional en cada pantalla.
+
+## Resultado
+
+Registro de movimientos con importe, categoría, descripción enriquecida, foto del recibo y
+fecha. Presupuesto mensual por usuario y categoría, con el gasto acumulado siguiéndose solo.
+Dashboard con tarjetas de estadísticas y gráficas mensuales de ingresos y gastos.
+
+La aplicación está fijada a español en `config/app.php`: el producto habla un solo idioma
+aunque su documentación sea bilingüe.

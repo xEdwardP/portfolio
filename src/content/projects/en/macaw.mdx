@@ -1,0 +1,116 @@
+---
+title: Macaw
+summary: 'A university peer-tutoring marketplace where money never moves directly between users: credits are frozen in escrow and only released once the session is confirmed.'
+role: Full application — API and SPA
+tier: case-study
+ecosystem: node
+category: web
+stack:
+  - React 19
+  - Express 5
+  - Prisma
+  - PostgreSQL 18
+  - Zustand
+  - TanStack Query
+  - Tailwind CSS 4
+  - OpenAI
+year: 2026
+status: active
+featured: false
+order: 2
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/Macaw
+highlights:
+  - Escrowed credits released only on confirmation
+  - Six chained validations before a booking is accepted
+  - AI tutor recommendations and review summaries
+---
+
+## The problem
+
+A peer-tutoring marketplace has a problem a shop does not: both parties can lie. The tutor can
+charge without teaching; the student can take the lesson and claim it never happened. And
+neither trusts the other enough to pay up front.
+
+On top of that there is scheduling: two people, different availabilities, and nobody wants to
+discover the clash after booking.
+
+## Architecture decisions
+
+### Money never moves between users
+
+No student ever pays a tutor. The student buys **internal credits** with PayPal, and from
+then on everything happens inside the system:
+
+```
+1. Wallet top-up with PayPal
+2. Booking         → credits move from `balance` to `frozen`
+3. The tutor delivers the session and marks it delivered
+4. The student confirms
+     → 90% to the tutor's balance
+     → 10% to the platform wallet
+5. The tutor requests a withdrawal; an admin approves and pays out via PayPal
+```
+
+Escrow solves the mutual distrust: the student is not paying a stranger, they are paying the
+system; the tutor knows the money is already set aside before teaching.
+
+The detail that keeps the mechanism from jamming: **if the student does nothing, step 4
+happens automatically after 24 hours** through a scheduled job. Without it, a distracted — or
+bad-faith — student could freeze a tutor's earnings forever.
+
+When there is disagreement the session moves to `disputed` and an administrator resolves it.
+The state of the money always corresponds to an explicit state of the session.
+
+### Six validations, in order, before booking
+
+Booking checks in sequence:
+
+1. The tutor exists and has availability on that weekday
+2. The requested range fits **entirely** inside one availability block
+3. The date is in the future, evaluated in `America/Tegucigalpa`
+4. The tutor has no overlapping session
+5. The student has no overlapping session
+6. The student's balance covers the price
+
+If all pass, **a single transaction** creates the session, moves the amount from `balance` to
+`frozen` and writes the ledger entry. There is no intermediate state where the session exists
+but the money was not set aside.
+
+Order matters: cheap checks run before expensive ones, and the timezone is explicit because a
+university operates in a specific zone, not in UTC.
+
+### Layers with strict responsibilities
+
+The backend follows **module → routes → controller → service**. Routes declare the auth and
+role middleware; controllers only translate HTTP into service calls and shape the response;
+services hold all business logic and Prisma transactions.
+
+Every response uses the same envelope, success or not:
+
+```json
+{ "success": true, "message": "Success", "data": {} }
+```
+
+The client never has to guess the shape of what it receives.
+
+### AI suggests, it does not decide
+
+Two uses of `gpt-4o-mini`, both scoped. **Recommendations** build the prompt from the
+student's career, quarter, GPA and last ten completed subjects, plus up to twenty active
+tutors, and ask for three with a short reason each; the JSON reply is parsed and **enriched
+with the real records** from the database. The **review summary** condenses the last twenty
+reviews into at most three sentences.
+
+In both cases the model ranks or summarises data that already exists. It does not invent
+tutors or set prices.
+
+## Outcome
+
+Four roles with their own dashboards: student, tutor, university and administrator. The
+university manages faculties and subjects, and can top up an institutional balance to
+subsidise its students.
+
+Video calls run on Jitsi Meet, with the room generated at booking time, so the link exists
+before the session even starts.
