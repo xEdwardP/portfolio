@@ -6,6 +6,7 @@ import Section from '@/shared/components/ui/Section.astro';
 import Badge from '@/shared/components/ui/Badge.astro';
 import Button from '@/shared/components/ui/Button.astro';
 import Prose from '@/shared/components/ui/Prose.astro';
+import ContentLink from '@/shared/components/ui/ContentLink.astro';
 import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
@@ -105,19 +106,13 @@ const statusKey = `project.status.${data.status}` as const;
     }
 
     <Prose class="mt-10">
-      <Content />
+      <Content components={{ a: ContentLink }} />
     </Prose>
 
     <div class="mt-10 flex flex-wrap gap-3 border-t border-subtle pt-6">
       {
         data.repos.map((repo) => (
-          <Button
-            href={repo.url}
-            variant="secondary"
-            size="sm"
-            rel="noopener"
-            target="_blank"
-          >
+          <Button href={repo.url} variant="secondary" size="sm">
             <Icon name="simple-icons:github" class="size-4" aria-hidden="true" />
             {repo.label}
           </Button>
@@ -125,7 +120,7 @@ const statusKey = `project.status.${data.status}` as const;
       }
       {
         data.liveUrl && (
-          <Button href={data.liveUrl} size="sm" rel="noopener" target="_blank">
+          <Button href={data.liveUrl} size="sm">
             <Icon name="lucide:external-link" class="size-4" aria-hidden="true" />
             {t('project.live')}
           </Button>

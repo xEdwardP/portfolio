@@ -1,16 +1,25 @@
 ---
 import type { HTMLAttributes } from 'astro/types';
+import { linkAttrs } from '@/shared/lib/links';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
 type Size = 'sm' | 'md';
 
 type Props = (HTMLAttributes<'a'> | HTMLAttributes<'button'>) & {
   href?: string;
+  rel?: string;
   variant?: Variant;
   size?: Size;
 };
 
-const { href, variant = 'primary', size = 'md', class: className, ...rest } = Astro.props;
+const {
+  href,
+  rel,
+  variant = 'primary',
+  size = 'md',
+  class: className,
+  ...rest
+} = Astro.props;
 
 const base =
   'inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-50';
@@ -31,7 +40,12 @@ const classes = [base, variants[variant], sizes[size], className];
 
 {
   href ? (
-    <a href={href} class:list={classes} {...(rest as HTMLAttributes<'a'>)}>
+    <a
+      href={href}
+      {...linkAttrs(href ?? '', rel)}
+      class:list={classes}
+      {...(rest as HTMLAttributes<'a'>)}
+    >
       <slot />
     </a>
   ) : (

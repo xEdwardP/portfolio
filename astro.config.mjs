@@ -1,4 +1,4 @@
-import { defineConfig, fontProviders } from 'astro/config';
+import { defineConfig, envField, fontProviders } from 'astro/config';
 import react from '@astrojs/react';
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
@@ -38,6 +38,24 @@ export default defineConfig({
       weights: [400, 500],
     },
   ],
+  // Real values live in .env, never here. Required ones fail the build when missing,
+  // so a deployment can never ship the placeholders from .env.example.
+  env: {
+    schema: {
+      PUBLIC_CONTACT_EMAIL: envField.string({ context: 'client', access: 'public' }),
+      PUBLIC_GITHUB_URL: envField.string({ context: 'client', access: 'public' }),
+      PUBLIC_LINKEDIN_URL: envField.string({ context: 'client', access: 'public' }),
+
+      // Optional on purpose: the form already degrades to "not configured yet".
+      // Web3Forms access keys are public by design — the form posts from the browser.
+      PUBLIC_WEB3FORMS_KEY: envField.string({
+        context: 'client',
+        access: 'public',
+        optional: true,
+        default: '',
+      }),
+    },
+  },
   markdown: {
     shikiConfig: {
       themes: { light: 'github-light', dark: 'github-dark-dimmed' },

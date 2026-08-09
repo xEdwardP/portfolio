@@ -1,7 +1,7 @@
 const es = {
-  'site.title': 'Edward P. — Desarrollador Fullstack y Mobile',
+  'site.title': 'Edward Pineda — Desarrollador Full Stack y Mobile',
   'site.description':
-    'Portafolio de Edward P. Desarrollo fullstack y móvil con Laravel, ASP.NET Core, TypeScript y Flutter.',
+    'Portafolio de Edward Pineda. Desarrollo full stack y móvil con Laravel, ASP.NET Core, TypeScript y Flutter.',
 
   'nav.home': 'Inicio',
   'nav.projects': 'Proyectos',
@@ -75,12 +75,57 @@ const es = {
   'blog.rss': 'Suscribirse por RSS',
   'blog.newer': 'Más recientes',
   'blog.older': 'Más antiguos',
+
+  'about.eyebrow': 'Sobre mí',
+  'about.lead':
+    'Ingeniero en Ciencias de la Computación y desarrollador full stack en Honduras.',
+  'about.story':
+    'Me muevo entre backend, frontend, móvil y base de datos sin depender de un solo ecosistema: trabajo con TypeScript, .NET, Laravel, Node.js y Flutter, y elijo la herramienta según el problema, no según lo que ya domino.',
+  'about.approach': 'Cómo trabajo',
+  'about.approachBody':
+    'Documento la arquitectura, el modelo de datos y las limitaciones conocidas de lo que construyo, porque un sistema que nadie más puede retomar no está terminado. Cuido la claridad al comunicarme y la experiencia de quien usa lo que hago. Base complementaria en redes y ciberseguridad.',
+  'about.photoAlt': 'Retrato de Edward Pineda',
+  'about.cv': 'Descargar CV',
+  'about.cvNote': 'PDF · español',
+  'about.skills': 'Tecnologías por ecosistema',
+  'about.skillsLead':
+    'Cada tecnología de esta lista aparece en al menos un proyecto publicado.',
+  'about.practices': 'Prácticas',
+  'about.projectsCount': 'proyectos',
+  'about.education': 'Formación',
+  'about.ctaTitle': '¿Trabajamos juntos?',
+  'about.ctaBody': 'Estoy abierto a oportunidades y colaboraciones.',
+
+  'contact.lead':
+    'Cuéntame en qué estás trabajando. El formulario llega directo a mi correo.',
+  'contact.field.name': 'Nombre',
+  'contact.field.email': 'Correo',
+  'contact.field.subject': 'Asunto',
+  'contact.field.message': 'Mensaje',
+  'contact.error.name': 'Escribe tu nombre, entre 2 y 80 caracteres.',
+  'contact.error.email': 'Escribe un correo electrónico válido.',
+  'contact.error.subject': 'Escribe un asunto, entre 3 y 120 caracteres.',
+  'contact.error.message': 'El mensaje debe tener entre 20 y 2000 caracteres.',
+  'contact.fail.misconfigured':
+    'El formulario todavía no está configurado. Escríbeme por correo mientras tanto.',
+  'contact.fail.rejected':
+    'No se pudo enviar el mensaje. Revisa los datos e inténtalo de nuevo.',
+  'contact.fail.network':
+    'Sin conexión con el servidor. Inténtalo de nuevo en un momento.',
+  'contact.send': 'Enviar mensaje',
+  'contact.sending': 'Enviando…',
+  'contact.success': 'Mensaje enviado. Gracias por escribir.',
+  'contact.honeypot': 'No rellenes este campo',
+  'contact.alt': 'Otras vías',
+  'contact.altBody': 'Si prefieres escribirme directamente:',
+  'contact.noscript':
+    'Sin JavaScript el formulario se envía igual, pero te llevará a la página del proveedor. También tienes mi correo aquí abajo.',
 } as const;
 
 const en = {
-  'site.title': 'Edward P. — Fullstack & Mobile Developer',
+  'site.title': 'Edward Pineda — Full Stack & Mobile Developer',
   'site.description':
-    'Portfolio of Edward P. Fullstack and mobile development with Laravel, ASP.NET Core, TypeScript and Flutter.',
+    'Portfolio of Edward Pineda. Full stack and mobile development with Laravel, ASP.NET Core, TypeScript and Flutter.',
 
   'nav.home': 'Home',
   'nav.projects': 'Projects',
@@ -155,6 +200,49 @@ const en = {
   'blog.rss': 'Subscribe via RSS',
   'blog.newer': 'Newer',
   'blog.older': 'Older',
+
+  'about.eyebrow': 'About me',
+  'about.lead':
+    'Full stack developer with a background in Computer Science, based in Honduras.',
+  'about.story':
+    'I work across backend, frontend, mobile and database without relying on a single ecosystem: TypeScript, .NET, Laravel, Node.js and Flutter, choosing the tool the problem calls for rather than the one I already know.',
+  'about.approach': 'How I work',
+  'about.approachBody':
+    'I document the architecture, data model and known limitations of what I build, because a system nobody else can pick up is not finished. I care about communicating clearly and about the experience of whoever uses what I make. Additional background in networking and cybersecurity.',
+  'about.photoAlt': 'Portrait of Edward Pineda',
+  'about.cv': 'Download CV',
+  'about.cvNote': 'PDF · English',
+  'about.skills': 'Technologies by ecosystem',
+  'about.skillsLead':
+    'Every technology listed here appears in at least one published project.',
+  'about.practices': 'Practices',
+  'about.projectsCount': 'projects',
+  'about.education': 'Education',
+  'about.ctaTitle': 'Shall we work together?',
+  'about.ctaBody': 'I am open to opportunities and collaborations.',
+
+  'contact.lead': 'Tell me what you are working on. The form goes straight to my inbox.',
+  'contact.field.name': 'Name',
+  'contact.field.email': 'Email',
+  'contact.field.subject': 'Subject',
+  'contact.field.message': 'Message',
+  'contact.error.name': 'Enter your name, between 2 and 80 characters.',
+  'contact.error.email': 'Enter a valid email address.',
+  'contact.error.subject': 'Enter a subject, between 3 and 120 characters.',
+  'contact.error.message': 'The message must be between 20 and 2000 characters.',
+  'contact.fail.misconfigured':
+    'The form is not configured yet. Email me in the meantime.',
+  'contact.fail.rejected':
+    'The message could not be sent. Check the fields and try again.',
+  'contact.fail.network': 'No connection to the server. Please try again in a moment.',
+  'contact.send': 'Send message',
+  'contact.sending': 'Sending…',
+  'contact.success': 'Message sent. Thanks for reaching out.',
+  'contact.honeypot': 'Do not fill in this field',
+  'contact.alt': 'Other channels',
+  'contact.altBody': 'If you would rather reach me directly:',
+  'contact.noscript':
+    'Without JavaScript the form still sends, but it takes you to the provider page. My email is also listed below.',
 } as const satisfies Record<keyof typeof es, string>;
 
 export const ui = { es, en } as const;

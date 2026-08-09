@@ -1,6 +1,11 @@
 ---
+import { PUBLIC_WEB3FORMS_KEY } from 'astro:env/client';
+import { Icon } from 'astro-icon/components';
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
-import ComingSoon from '@/shared/components/ComingSoon.astro';
+import Section from '@/shared/components/ui/Section.astro';
+import ContactForm, { type ContactLabels } from '@/features/contact/islands/ContactForm';
+import { profile } from '@/data/profile';
+import { linkAttrs } from '@/shared/lib/links';
 import { locales, type Locale } from '@/i18n/config';
 import { useTranslations } from '@/i18n/utils';
 
@@ -10,8 +15,74 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
+
+const labels: ContactLabels = {
+  fields: {
+    name: t('contact.field.name'),
+    email: t('contact.field.email'),
+    subject: t('contact.field.subject'),
+    message: t('contact.field.message'),
+  },
+  errors: {
+    name: t('contact.error.name'),
+    email: t('contact.error.email'),
+    subject: t('contact.error.subject'),
+    message: t('contact.error.message'),
+  },
+  failures: {
+    misconfigured: t('contact.fail.misconfigured'),
+    rejected: t('contact.fail.rejected'),
+    network: t('contact.fail.network'),
+  },
+  send: t('contact.send'),
+  sending: t('contact.sending'),
+  success: t('contact.success'),
+  honeypot: t('contact.honeypot'),
+};
+
+const channels = [
+  { href: `mailto:${profile.email}`, icon: 'lucide:mail', label: profile.email },
+  { href: profile.linkedin, icon: 'simple-icons:linkedin', label: 'LinkedIn' },
+  { href: profile.github, icon: 'simple-icons:github', label: profile.username },
+];
 ---
 
-<BaseLayout title={t('nav.contact')}>
-  <ComingSoon locale={locale} title={t('nav.contact')} />
+<BaseLayout title={t('nav.contact')} description={t('contact.lead')}>
+  <Section width="prose" class="py-16 sm:py-20">
+    <h1 class="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+      {t('nav.contact')}
+    </h1>
+    <p class="mt-4 text-lg text-muted">{t('contact.lead')}</p>
+
+    <div class="mt-10">
+      <ContactForm labels={labels} accessKey={PUBLIC_WEB3FORMS_KEY} client:idle />
+      <noscript>
+        <p class="rounded-lg border border-subtle bg-raised p-4 text-sm text-muted">
+          {t('contact.noscript')}
+        </p>
+      </noscript>
+    </div>
+
+    <div class="mt-12 border-t border-subtle pt-8">
+      <h2 class="font-display text-lg font-semibold">{t('contact.alt')}</h2>
+      <p class="mt-2 text-sm text-muted">{t('contact.altBody')}</p>
+
+      <ul class="mt-4 grid gap-3">
+        {
+          channels.map((channel) => (
+            <li>
+              <a
+                href={channel.href}
+                {...linkAttrs(channel.href, 'me')}
+                class="inline-flex items-center gap-2 text-sm font-medium text-accent"
+              >
+                <Icon name={channel.icon} class="size-4" aria-hidden="true" />
+                {channel.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </Section>
 </BaseLayout>

@@ -1,6 +1,7 @@
 ---
 import { Icon } from 'astro-icon/components';
 import { profile } from '@/data/profile';
+import { linkAttrs } from '@/shared/lib/links';
 import type { Locale } from '@/i18n/config';
 import { useTranslations } from '@/i18n/utils';
 
@@ -17,13 +18,12 @@ const year = new Date().getFullYear();
   <div
     class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between"
   >
-    <p>© {year} {profile.name}. {t('footer.rights')}.</p>
+    <p>© {year} {profile.shortName}. {t('footer.rights')}.</p>
 
     <div class="flex items-center gap-4">
       <a
         href={profile.github}
-        rel="me noopener"
-        target="_blank"
+        {...linkAttrs(profile.github, 'me')}
         class="inline-flex items-center gap-1.5 transition hover:text-text"
       >
         <Icon name="simple-icons:github" class="size-4" aria-hidden="true" />

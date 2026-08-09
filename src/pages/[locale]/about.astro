@@ -1,8 +1,17 @@
 ---
+import { Image } from 'astro:assets';
+import { Icon } from 'astro-icon/components';
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
-import ComingSoon from '@/shared/components/ComingSoon.astro';
+import Badge from '@/shared/components/ui/Badge.astro';
+import Button from '@/shared/components/ui/Button.astro';
+import Card from '@/shared/components/ui/Card.astro';
+import Section from '@/shared/components/ui/Section.astro';
+import { countByEcosystem, getProjects } from '@/features/projects/queries';
+import { ecosystems, education, profile } from '@/data/profile';
+import { practices, skills } from '@/data/skills';
 import { locales, type Locale } from '@/i18n/config';
-import { useTranslations } from '@/i18n/utils';
+import { localizePath, useTranslations } from '@/i18n/utils';
+import portrait from '@/assets/edward-pineda.png';
 
 export function getStaticPaths() {
   return locales.map((locale) => ({ params: { locale } }));
@@ -10,8 +19,128 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
+
+const counts = countByEcosystem(await getProjects(locale));
+const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
 ---
 
-<BaseLayout title={t('nav.about')}>
-  <ComingSoon locale={locale} title={t('nav.about')} />
+<BaseLayout title={t('nav.about')} description={t('about.lead')}>
+  <Section width="default" class="py-16 sm:py-20">
+    <div class="flex flex-col gap-8 sm:flex-row sm:items-start sm:gap-10">
+      <Image
+        src={portrait}
+        alt={t('about.photoAlt')}
+        width={200}
+        densities={[1, 2]}
+        loading="eager"
+        class="size-32 shrink-0 rounded-2xl border border-subtle object-cover sm:size-40"
+      />
+
+      <div>
+        <p class="font-mono text-sm text-accent">{t('about.eyebrow')}</p>
+        <h1 class="mt-3 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+          {profile.name}
+        </h1>
+        <p class="mt-2 text-lg text-muted">{profile.role[locale]}</p>
+
+        <div class="mt-6 flex flex-wrap items-center gap-3">
+          <Button href={profile.cv[locale]} download>
+            <Icon name="lucide:download" class="size-4" aria-hidden="true" />
+            {t('about.cv')}
+          </Button>
+          <span class="font-mono text-xs text-muted">{t('about.cvNote')}</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="mt-10 max-w-2xl leading-relaxed">{t('about.story')}</p>
+
+    <h2 class="mt-12 font-display text-xl font-semibold tracking-tight">
+      {t('about.approach')}
+    </h2>
+    <p class="mt-3 max-w-2xl leading-relaxed text-muted">{t('about.approachBody')}</p>
+  </Section>
+
+  <Section width="wide" title={t('about.skills')}>
+    <p class="-mt-3 mb-8 text-muted">{t('about.skillsLead')}</p>
+
+    <ul class="grid gap-5 sm:grid-cols-2">
+      {
+        skills.map((group) => (
+          <li class="contents">
+            <Card class="flex flex-col gap-4">
+              <div class="flex items-center gap-3">
+                <Icon
+                  name={meta[group.ecosystem].icon}
+                  class:list={['size-6 shrink-0', meta[group.ecosystem].color]}
+                  aria-hidden="true"
+                />
+                <h3 class="font-display font-semibold">{meta[group.ecosystem].label}</h3>
+                <span class="ml-auto font-mono text-xs text-muted">
+                  {counts[group.ecosystem] ?? 0} {t('about.projectsCount')}
+                </span>
+              </div>
+
+              <p class="text-sm text-muted">{group.headline[locale]}</p>
+
+              <ul class="mt-auto flex flex-wrap gap-1.5">
+                {group.items.map((item) => (
+                  <li>
+                    <Badge>{item}</Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
+  <Section width="wide" title={t('about.practices')}>
+    <ul class="flex flex-wrap gap-2">
+      {
+        practices[locale].map((practice) => (
+          <li>
+            <Badge variant="outline">{practice}</Badge>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
+  <Section width="wide" title={t('about.education')}>
+    <ul class="grid gap-4 sm:grid-cols-2">
+      {
+        education.map((entry) => (
+          <li class="contents">
+            <Card>
+              <h3 class="font-display font-semibold">{entry.degree[locale]}</h3>
+              <p class="mt-1 text-sm text-muted">{entry.institution}</p>
+              <p class="mt-2 font-mono text-xs text-muted">{entry.period}</p>
+            </Card>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
+  <Section width="wide">
+    <Card class="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+      <div class="flex-1">
+        <h2 class="font-display text-xl font-semibold tracking-tight">
+          {t('about.ctaTitle')}
+        </h2>
+        <p class="mt-1 text-muted">{t('about.ctaBody')}</p>
+      </div>
+
+      <div class="flex flex-wrap gap-3">
+        <Button href={localizePath('/contact', locale)}>{t('home.cta.contact')}</Button>
+        <Button href={profile.linkedin} variant="secondary" rel="me">
+          <Icon name="simple-icons:linkedin" class="size-4" aria-hidden="true" />
+          LinkedIn
+        </Button>
+      </div>
+    </Card>
+  </Section>
 </BaseLayout>
