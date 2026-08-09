@@ -1,0 +1,83 @@
+---
+import { Icon } from 'astro-icon/components';
+import type { Locale } from '@/i18n/config';
+import { useTranslations } from '@/i18n/utils';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+const options = [
+  { value: 'light', icon: 'lucide:sun', label: t('theme.light') },
+  { value: 'dark', icon: 'lucide:moon', label: t('theme.dark') },
+  { value: 'system', icon: 'lucide:monitor', label: t('theme.system') },
+] as const;
+---
+
+<div
+  class="flex items-center gap-0.5 rounded-lg border border-subtle p-0.5"
+  role="radiogroup"
+  aria-label={t('theme.label')}
+  data-theme-toggle
+>
+  {
+    options.map((option) => (
+      <button
+        type="button"
+        role="radio"
+        aria-checked="false"
+        aria-label={option.label}
+        title={option.label}
+        data-theme-option={option.value}
+        class="cursor-pointer rounded-md p-1.5 text-muted transition hover:text-text aria-checked:bg-raised aria-checked:text-text"
+      >
+        <Icon name={option.icon} class="size-4" aria-hidden="true" />
+      </button>
+    ))
+  }
+</div>
+
+<script>
+  type Theme = 'light' | 'dark' | 'system';
+
+  function apply(theme: Theme) {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle(
+      'dark',
+      theme === 'dark' || (theme === 'system' && prefersDark)
+    );
+  }
+
+  function sync() {
+    const current = (document.documentElement.dataset.theme ?? 'system') as Theme;
+    document
+      .querySelectorAll<HTMLButtonElement>('[data-theme-option]')
+      .forEach((button) => {
+        button.setAttribute(
+          'aria-checked',
+          String(button.dataset.themeOption === current)
+        );
+      });
+  }
+
+  document
+    .querySelectorAll<HTMLButtonElement>('[data-theme-option]')
+    .forEach((button) => {
+      button.addEventListener('click', () => {
+        const theme = button.dataset.themeOption as Theme;
+        localStorage.setItem('theme', theme);
+        apply(theme);
+        sync();
+      });
+    });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (document.documentElement.dataset.theme === 'system') apply('system');
+  });
+
+  sync();
+</script>

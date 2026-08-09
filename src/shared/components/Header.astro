@@ -1,0 +1,86 @@
+---
+import { Icon } from 'astro-icon/components';
+import ThemeToggle from '@/features/theme/ThemeToggle.astro';
+import LanguageSwitcher from '@/shared/components/LanguageSwitcher.astro';
+import { navigation } from '@/data/navigation';
+import { profile } from '@/data/profile';
+import type { Locale } from '@/i18n/config';
+import { localizePath, stripLocale, useTranslations } from '@/i18n/utils';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+const route = stripLocale(Astro.url.pathname);
+
+const links = navigation.map((item) => ({
+  label: t(item.key),
+  href: localizePath(item.path, locale),
+  current: route === item.path || route.startsWith(`${item.path}/`),
+}));
+---
+
+<header class="sticky top-0 z-40 border-b border-subtle bg-bg/85 backdrop-blur">
+  <div class="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
+    <a
+      href={localizePath('', locale)}
+      class="mr-auto font-display text-base font-semibold tracking-tight"
+    >
+      {profile.name}
+    </a>
+
+    <nav aria-label={t('nav.menu')} class="hidden md:block">
+      <ul class="flex items-center gap-1">
+        {
+          links.map((link) => (
+            <li>
+              <a
+                href={link.href}
+                aria-current={link.current ? 'page' : undefined}
+                class="rounded-md px-3 py-1.5 text-sm text-muted transition hover:bg-raised hover:text-text aria-[current=page]:text-text"
+              >
+                {link.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+
+    <div class="flex items-center gap-2">
+      <LanguageSwitcher locale={locale} />
+      <ThemeToggle locale={locale} />
+    </div>
+
+    <details class="relative md:hidden" name="mobile-nav">
+      <summary
+        class="flex cursor-pointer items-center rounded-lg border border-subtle p-1.5 text-muted transition hover:text-text [&::-webkit-details-marker]:hidden"
+        aria-label={t('nav.menu')}
+      >
+        <Icon name="lucide:menu" class="size-4" aria-hidden="true" />
+      </summary>
+      <nav
+        aria-label={t('nav.menu')}
+        class="absolute top-full right-0 mt-2 min-w-44 rounded-xl border border-subtle bg-surface p-2 shadow-lg"
+      >
+        <ul class="flex flex-col">
+          {
+            links.map((link) => (
+              <li>
+                <a
+                  href={link.href}
+                  aria-current={link.current ? 'page' : undefined}
+                  class="block rounded-md px-3 py-2 text-sm text-muted transition hover:bg-raised hover:text-text aria-[current=page]:text-text"
+                >
+                  {link.label}
+                </a>
+              </li>
+            ))
+          }
+        </ul>
+      </nav>
+    </details>
+  </div>
+</header>

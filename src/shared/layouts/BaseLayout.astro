@@ -1,0 +1,72 @@
+---
+import { Font } from 'astro:assets';
+import ThemeScript from '@/features/theme/ThemeScript.astro';
+import Header from '@/shared/components/Header.astro';
+import Footer from '@/shared/components/Footer.astro';
+import SkipLink from '@/shared/components/SkipLink.astro';
+import { htmlLang, type Locale } from '@/i18n/config';
+import { getAlternates, getLocaleFromPath, useTranslations } from '@/i18n/utils';
+import { personSchema } from '@/shared/lib/seo';
+import '@/styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const locale: Locale = getLocaleFromPath(Astro.url.pathname);
+const t = useTranslations(locale);
+
+const site = Astro.site ?? Astro.url.origin;
+const title = Astro.props.title
+  ? `${Astro.props.title} — ${t('site.title')}`
+  : t('site.title');
+const description = Astro.props.description ?? t('site.description');
+const canonical = new URL(Astro.url.pathname, site).href;
+const alternates = getAlternates(Astro.url.pathname, site);
+const schema = personSchema(locale, site);
+---
+
+<!doctype html>
+<html lang={htmlLang[locale]}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <ThemeScript />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+
+    {
+      alternates.map((alternate) => (
+        <link rel="alternate" hreflang={alternate.locale} href={alternate.href} />
+      ))
+    }
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={htmlLang[locale]} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <Font cssVariable="--font-inter" preload />
+    <Font cssVariable="--font-general-sans" preload />
+    <Font cssVariable="--font-jetbrains" />
+
+    <link rel="sitemap" href="/sitemap-index.xml" />
+    <script type="application/ld+json" set:html={JSON.stringify(schema)} is:inline />
+  </head>
+
+  <body class="flex min-h-screen flex-col bg-bg font-sans text-text">
+    <SkipLink locale={locale} />
+    <Header locale={locale} />
+
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+
+    <Footer locale={locale} />
+  </body>
+</html>

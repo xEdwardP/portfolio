@@ -1,0 +1,17 @@
+---
+
+---
+
+<script is:inline>
+  (() => {
+    const stored = localStorage.getItem('theme');
+    const theme = stored === 'light' || stored === 'dark' ? stored : 'system';
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.classList.toggle(
+      'dark',
+      theme === 'dark' || (theme === 'system' && prefersDark)
+    );
+  })();
+</script>

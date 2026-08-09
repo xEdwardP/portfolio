@@ -1,0 +1,30 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+
+interface Props extends HTMLAttributes<'section'> {
+  title?: string;
+  width?: 'prose' | 'default' | 'wide';
+}
+
+const { title, width = 'default', class: className, ...rest } = Astro.props;
+
+const widths = {
+  prose: 'max-w-2xl',
+  default: 'max-w-5xl',
+  wide: 'max-w-6xl',
+};
+---
+
+<section
+  class:list={['mx-auto w-full px-4 py-12 sm:py-16', widths[width], className]}
+  {...rest}
+>
+  {
+    title && (
+      <h2 class="mb-6 font-display text-2xl font-semibold tracking-tight sm:text-3xl">
+        {title}
+      </h2>
+    )
+  }
+  <slot />
+</section>

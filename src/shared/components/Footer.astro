@@ -1,0 +1,35 @@
+---
+import { Icon } from 'astro-icon/components';
+import { profile } from '@/data/profile';
+import type { Locale } from '@/i18n/config';
+import { useTranslations } from '@/i18n/utils';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-subtle">
+  <div
+    class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between"
+  >
+    <p>© {year} {profile.name}. {t('footer.rights')}.</p>
+
+    <div class="flex items-center gap-4">
+      <a
+        href={profile.github}
+        rel="me noopener"
+        target="_blank"
+        class="inline-flex items-center gap-1.5 transition hover:text-text"
+      >
+        <Icon name="simple-icons:github" class="size-4" aria-hidden="true" />
+        {t('footer.source')}
+      </a>
+      <span class="hidden sm:inline">{t('footer.built')}</span>
+    </div>
+  </div>
+</footer>

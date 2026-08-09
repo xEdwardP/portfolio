@@ -1,19 +1,28 @@
 ---
-import '@/styles/global.css';
+import { defaultLocale, locales } from '@/i18n/config';
+
+const fallback = `/${defaultLocale}/`;
 ---
 
 <!doctype html>
-<html lang="es">
+<html lang={defaultLocale}>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Portfolio — en construcción</title>
+    <meta name="robots" content="noindex" />
+    <link rel="canonical" href={fallback} />
+    <title>Edward P.</title>
+    <script is:inline define:vars={{ locales, fallback }}>
+      const match = navigator.languages
+        .map((tag) => tag.split('-')[0])
+        .find((tag) => locales.includes(tag));
+
+      window.location.replace(match ? `/${match}/` : fallback);
+    </script>
+    <noscript>
+      <meta http-equiv="refresh" content="0; url=/es/" />
+    </noscript>
   </head>
-  <body class="grid min-h-screen place-items-center bg-bg text-text">
-    <div class="text-center">
-      <p class="font-mono text-sm text-muted">Sprint 1</p>
-      <h1 class="mt-2 text-2xl font-bold">Portfolio en construcción</h1>
-      <p class="mt-2 text-sm text-muted">Paleta y sistema de tokens listos.</p>
-    </div>
+  <body>
+    <a href={fallback}>Continuar / Continue</a>
   </body>
 </html>
