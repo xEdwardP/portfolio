@@ -1,0 +1,59 @@
+:root {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --surface: #fafafa;
+  --surface-raised: #f4f4f5;
+
+  --text: #09090b;
+  --text-muted: #52525b;
+
+  --accent: #7c3aed;
+  --accent-hover: #6d28d9;
+  --accent-contrast: #ffffff;
+  --highlight: #7c3aed;
+  --highlight-hover: #6d28d9;
+  --highlight-contrast: #ffffff;
+
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --border-control: #71717a;
+
+  --success: #15803d;
+  --warning: #a16207;
+  --danger: #dc2626;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: #09090b;
+  --surface: #18181b;
+  --surface-raised: #27272a;
+
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+
+  --accent: #a78bfa;
+  --accent-hover: #c4b5fd;
+  --accent-contrast: #09090b;
+
+  --highlight: #a78bfa;
+  --highlight-hover: #c4b5fd;
+  --highlight-contrast: #09090b;
+
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --border-control: #a1a1aa;
+
+  --success: #4ade80;
+  --warning: #facc15;
+  --danger: #f87171;
+}
+
+:root {
+  --brand-laravel: #f05340;
+  --brand-dotnet: #8a56d3;
+  --brand-node: #5fa04e;
+  --brand-flutter: #45d1fd;
+}

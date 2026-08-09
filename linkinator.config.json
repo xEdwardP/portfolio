@@ -1,0 +1,12 @@
+{
+  "recurse": true,
+  "silent": true,
+  "skip": [
+    "github\\.com",
+    "linkedin\\.com",
+    "web3forms\\.com",
+    "astro\\.build",
+    "tailwindcss\\.com",
+    "conventionalcommits\\.org"
+  ]
+}
