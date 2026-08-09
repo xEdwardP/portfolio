@@ -38,6 +38,12 @@ export default defineConfig({
       weights: [400, 500],
     },
   ],
+  markdown: {
+    shikiConfig: {
+      themes: { light: 'github-light', dark: 'github-dark-dimmed' },
+      wrap: false,
+    },
+  },
   integrations: [react(), mdx(), sitemap(), icon()],
   vite: {
     plugins: [tailwindcss()],

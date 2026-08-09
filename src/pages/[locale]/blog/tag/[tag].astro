@@ -1,0 +1,54 @@
+---
+import { Icon } from 'astro-icon/components';
+import BaseLayout from '@/shared/layouts/BaseLayout.astro';
+import Section from '@/shared/components/ui/Section.astro';
+import PostCard from '@/features/blog/components/PostCard.astro';
+import { getPostsByTag, getTags } from '@/features/blog/queries';
+import { tagLabel, type TagId } from '@/data/tags';
+import { locales, type Locale } from '@/i18n/config';
+import { localizePath, useTranslations } from '@/i18n/utils';
+
+export async function getStaticPaths() {
+  const perLocale = await Promise.all(locales.map((locale) => getTags(locale)));
+  const ids = [...new Set(perLocale.flat().map((tag) => tag.id))];
+
+  return locales.flatMap((locale) => ids.map((tag) => ({ params: { locale, tag } })));
+}
+
+const locale = Astro.params.locale as Locale;
+const tag = Astro.params.tag as TagId;
+const t = useTranslations(locale);
+const label = tagLabel(tag, locale);
+const posts = await getPostsByTag(locale, tag);
+---
+
+<BaseLayout title={`${t('blog.taggedWith')} ${label}`} description={t('blog.lead')}>
+  <Section width="wide">
+    <a
+      href={localizePath('/blog', locale)}
+      class="inline-flex items-center gap-1.5 text-sm text-muted transition hover:text-text"
+    >
+      <Icon name="lucide:arrow-left" class="size-4" aria-hidden="true" />
+      {t('blog.back')}
+    </a>
+
+    <h1 class="mt-6 font-display text-3xl font-bold tracking-tight sm:text-4xl">
+      {t('blog.taggedWith')}
+      <span class="text-accent">{label}</span>
+    </h1>
+
+    {
+      posts.length === 0 ? (
+        <p class="mt-10 text-muted">{t('blog.empty')}</p>
+      ) : (
+        <ul class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {posts.map((post) => (
+            <li class="contents">
+              <PostCard post={post} locale={locale} />
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </Section>
+</BaseLayout>

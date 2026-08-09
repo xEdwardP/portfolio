@@ -1,6 +1,7 @@
 import { defineCollection } from 'astro:content';
 import { glob } from 'astro/loaders';
 import * as z from 'zod';
+import { tagIds } from './data/tags';
 
 const projects = defineCollection({
   loader: glob({ base: './src/content/projects', pattern: '**/*.mdx' }),
@@ -23,4 +24,16 @@ const projects = defineCollection({
   }),
 });
 
-export const collections = { projects };
+const posts = defineCollection({
+  loader: glob({ base: './src/content/posts', pattern: '**/*.mdx' }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string().max(200),
+    publishDate: z.coerce.date(),
+    updatedDate: z.coerce.date().optional(),
+    tags: z.array(z.enum(tagIds)).min(1),
+    draft: z.boolean().default(false),
+  }),
+});
+
+export const collections = { projects, posts };

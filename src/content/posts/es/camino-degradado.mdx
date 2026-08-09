@@ -1,0 +1,120 @@
+---
+title: 'Cuando la API externa falla: diseñar el camino degradado'
+description: Un servicio externo caído no debería tumbar tu producto. Cómo decidir qué se degrada, cuánto, y por qué el fallback más útil casi nunca es el más preciso.
+publishDate: 2026-08-09
+tags:
+  - architecture
+  - resilience
+  - postgis
+---
+
+Casi todo lo que construimos depende de algo que no controlamos. Una pasarela de pagos, un
+servicio de mapas, un proveedor de correo. La pregunta no es si van a fallar: es qué pasa con
+tu producto cuando fallen.
+
+La respuesta habitual es un `try/catch` que registra el error y devuelve un 500. Eso no es
+manejar el fallo, es reenviárselo al usuario.
+
+## El caso concreto
+
+En una plataforma de viajes tipo ride-hailing, el precio depende de la distancia. Y la
+distancia real no es la línea recta entre dos puntos: es el recorrido por calles, con sus
+vueltas y sentidos únicos. Para eso existe la Google Directions API.
+
+Ahora la pregunta incómoda: **si Directions no responde, ¿qué le muestras al usuario que
+está pidiendo un viaje?**
+
+Las tres respuestas posibles no valen lo mismo:
+
+1. **Un error.** El usuario no puede pedir el viaje. Cero ingresos, y probablemente se va a
+   la competencia.
+2. **Esperar y reintentar.** El usuario mira una rueda girando durante ocho segundos y
+   después ve un error igualmente.
+3. **Estimar peor, pero estimar.** El usuario recibe un precio aproximado y puede pedir el
+   viaje.
+
+## Por qué la tercera gana
+
+La clave está en preguntarse **qué precisión hace falta de verdad**. Una tarifa estimada no
+es una factura: es un número que le permite al pasajero decidir si le conviene. Si el
+recorrido real termina costando un 8 % más, el producto sigue siendo útil. Si no hay número,
+no hay viaje.
+
+Es la diferencia entre _degradar_ y _fallar_. Degradar significa entregar menos calidad pero
+seguir cumpliendo la función. Fallar significa no cumplirla.
+
+Y aquí es donde la mayoría de los fallbacks se diseñan mal: se busca el reemplazo más
+parecido al original, cuando lo que hay que buscar es **el reemplazo más barato que aún
+resuelva el problema del usuario**.
+
+## La implementación
+
+La base de datos ya sabe geografía. Con PostGIS, la distancia en línea recta entre dos puntos
+es una función:
+
+```sql
+SELECT ST_Distance(
+  origen::geography,
+  destino::geography
+) AS metros;
+```
+
+Eso da la línea recta, que siempre es menor que el recorrido real. Multiplicarla por un factor
+de corrección la acerca:
+
+```ts
+const metros = await distanciaEnLineaRecta(origen, destino);
+const estimado = metros * 1.3;
+```
+
+Ese `1.3` no es magia: es el factor de rodeo, la relación media entre la distancia por calles
+y la distancia en línea recta en una ciudad. Varía según el trazado urbano —una ciudad en
+cuadrícula se acerca a 1.2, una con río o cerros de por medio sube—, y conviene medirlo
+contra datos propios en vez de heredarlo.
+
+El resultado completo:
+
+```ts
+async function calcularDistancia(origen: Punto, destino: Punto) {
+  try {
+    return await directions.distancia(origen, destino);
+  } catch {
+    const recta = await db.distanciaGeografica(origen, destino);
+    return recta * FACTOR_DE_RODEO;
+  }
+}
+```
+
+Nueve líneas. La diferencia entre una plataforma que deja de vender cuando Google tiene un
+mal día y una que no.
+
+## Lo que hay que decidir antes de escribir el fallback
+
+Tres preguntas, en este orden:
+
+**¿Cuál es la función mínima?** No "calcular la distancia exacta", sino "permitir que el
+usuario pida un viaje con un precio que pueda aceptar". El fallback sirve a la función, no a
+la implementación.
+
+**¿Qué precisión es suficiente?** Si no puedes responderlo con un número, no puedes evaluar
+si el fallback sirve. Aquí: un margen de error de un 10-15 % es tolerable en una estimación;
+un 60 % no.
+
+**¿Con qué recursos que ya tienes?** El mejor fallback usa algo que ya está en el sistema. Aquí
+era PostGIS, que ya estaba instalado para el radio de búsqueda de conductores. No hubo que
+añadir ninguna dependencia.
+
+## El detalle que se olvida
+
+Un camino degradado que nadie observa se convierte en un camino permanente. Si Directions
+lleva tres semanas caída y todo el mundo cobra con la estimación aproximada, el sistema
+funciona —y nadie se entera de que lleva tres semanas cobrando mal.
+
+El fallback necesita dejar rastro: una métrica, un log, algo que responda a la pregunta "¿con
+qué frecuencia estamos degradando?". Sin eso no construiste resiliencia, construiste una
+avería silenciosa.
+
+---
+
+Este patrón está tomado de [Catracho GO](/es/projects/catracho-go/), donde el cálculo de
+tarifas usa Google Directions con respaldo en PostGIS.

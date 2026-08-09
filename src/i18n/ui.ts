@@ -61,6 +61,20 @@ const es = {
   'category.mobile': 'Móvil',
   'category.api': 'API',
   'category.desktop': 'Escritorio',
+
+  'blog.lead': 'Notas sobre decisiones técnicas, escritas desde proyectos reales.',
+  'blog.readingTime': 'min de lectura',
+  'blog.readMore': 'Leer',
+  'blog.back': 'Volver al blog',
+  'blog.toc': 'En este artículo',
+  'blog.tags': 'Etiquetas',
+  'blog.allTags': 'Todas las etiquetas',
+  'blog.taggedWith': 'Artículos etiquetados con',
+  'blog.empty': 'Todavía no hay artículos.',
+  'blog.updated': 'Actualizado el',
+  'blog.rss': 'Suscribirse por RSS',
+  'blog.newer': 'Más recientes',
+  'blog.older': 'Más antiguos',
 } as const;
 
 const en = {
@@ -127,6 +141,20 @@ const en = {
   'category.mobile': 'Mobile',
   'category.api': 'API',
   'category.desktop': 'Desktop',
+
+  'blog.lead': 'Notes on technical decisions, written from real projects.',
+  'blog.readingTime': 'min read',
+  'blog.readMore': 'Read',
+  'blog.back': 'Back to the blog',
+  'blog.toc': 'In this article',
+  'blog.tags': 'Tags',
+  'blog.allTags': 'All tags',
+  'blog.taggedWith': 'Posts tagged',
+  'blog.empty': 'No posts yet.',
+  'blog.updated': 'Updated on',
+  'blog.rss': 'Subscribe via RSS',
+  'blog.newer': 'Newer',
+  'blog.older': 'Older',
 } as const satisfies Record<keyof typeof es, string>;
 
 export const ui = { es, en } as const;

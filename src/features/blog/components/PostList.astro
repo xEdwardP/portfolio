@@ -1,0 +1,102 @@
+---
+import { Icon } from 'astro-icon/components';
+import Badge from '@/shared/components/ui/Badge.astro';
+import PostCard from './PostCard.astro';
+import type { Locale } from '@/i18n/config';
+import { localizePath, useTranslations } from '@/i18n/utils';
+import { getTags, type Post } from '@/features/blog/queries';
+
+interface Props {
+  posts: Post[];
+  locale: Locale;
+  currentPage: number;
+  lastPage: number;
+}
+
+const { posts, locale, currentPage, lastPage } = Astro.props;
+const t = useTranslations(locale);
+const tags = await getTags(locale);
+
+const pageHref = (page: number) =>
+  page === 1 ? localizePath('/blog', locale) : localizePath(`/blog/page/${page}`, locale);
+---
+
+<div class="flex flex-wrap items-start justify-between gap-4">
+  <div>
+    <h1 class="font-display text-3xl font-bold tracking-tight sm:text-4xl">
+      {t('nav.blog')}
+    </h1>
+    <p class="mt-3 max-w-xl text-muted">{t('blog.lead')}</p>
+  </div>
+
+  <a
+    href={`/${locale}/rss.xml`}
+    class="inline-flex items-center gap-1.5 rounded-lg border border-subtle px-3 py-1.5 text-sm text-muted transition hover:bg-raised hover:text-text"
+  >
+    <Icon name="lucide:rss" class="size-4" aria-hidden="true" />
+    RSS
+  </a>
+</div>
+
+{
+  tags.length > 0 && (
+    <nav aria-label={t('blog.tags')} class="mt-6 flex flex-wrap gap-2">
+      {tags.map((tag) => (
+        <a href={localizePath(`/blog/tag/${tag.id}`, locale)}>
+          <Badge variant="outline">{tag.label}</Badge>
+        </a>
+      ))}
+    </nav>
+  )
+}
+
+{
+  posts.length === 0 ? (
+    <p class="mt-12 text-muted">{t('blog.empty')}</p>
+  ) : (
+    <ul class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {posts.map((post) => (
+        <li class="contents">
+          <PostCard post={post} locale={locale} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+{
+  lastPage > 1 && (
+    <nav
+      class="mt-10 flex items-center justify-between border-t border-subtle pt-6 text-sm"
+      aria-label={t('nav.blog')}
+    >
+      {currentPage > 1 ? (
+        <a
+          href={pageHref(currentPage - 1)}
+          class="inline-flex items-center gap-1.5 text-accent"
+        >
+          <Icon name="lucide:arrow-left" class="size-4" aria-hidden="true" />
+          {t('blog.newer')}
+        </a>
+      ) : (
+        <span />
+      )}
+
+      <span class="font-mono text-xs text-muted">
+        {currentPage} / {lastPage}
+      </span>
+
+      {currentPage < lastPage ? (
+        <a
+          href={pageHref(currentPage + 1)}
+          class="inline-flex items-center gap-1.5 text-accent"
+        >
+          {t('blog.older')}
+          <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
+        </a>
+      ) : (
+        <span />
+      )}
+    </nav>
+  )
+}

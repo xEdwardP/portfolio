@@ -1,0 +1,45 @@
+---
+import Badge from '@/shared/components/ui/Badge.astro';
+import Card from '@/shared/components/ui/Card.astro';
+import type { Locale } from '@/i18n/config';
+import { localizePath, useTranslations } from '@/i18n/utils';
+import { formatDate, isoDate } from '@/shared/lib/format';
+import { readingMinutes, slugOf, type Post } from '@/features/blog/queries';
+import { tagLabel } from '@/data/tags';
+
+interface Props {
+  post: Post;
+  locale: Locale;
+}
+
+const { post, locale } = Astro.props;
+const t = useTranslations(locale);
+const href = localizePath(`/blog/${slugOf(post)}`, locale);
+const minutes = readingMinutes(post);
+---
+
+<Card interactive class="relative flex h-full flex-col">
+  <p class="mb-2 font-mono text-xs text-muted">
+    <time datetime={isoDate(post.data.publishDate)}>
+      {formatDate(post.data.publishDate, locale)}
+    </time>
+    <span aria-hidden="true">·</span>
+    {minutes}
+    {t('blog.readingTime')}
+  </p>
+
+  <h3 class="mb-2 font-display text-lg font-semibold tracking-tight">
+    <a
+      href={href}
+      class="transition group-hover:text-accent after:absolute after:inset-0"
+    >
+      {post.data.title}
+    </a>
+  </h3>
+
+  <p class="mb-4 flex-1 text-sm text-muted">{post.data.description}</p>
+
+  <div class="flex flex-wrap gap-2">
+    {post.data.tags.map((tag) => <Badge>{tagLabel(tag, locale)}</Badge>)}
+  </div>
+</Card>

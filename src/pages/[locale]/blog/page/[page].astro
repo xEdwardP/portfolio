@@ -7,21 +7,33 @@ import { pageCount, pageSlice } from '@/features/blog/pagination';
 import { locales, type Locale } from '@/i18n/config';
 import { useTranslations } from '@/i18n/utils';
 
-export function getStaticPaths() {
-  return locales.map((locale) => ({ params: { locale } }));
+export async function getStaticPaths() {
+  const paths = await Promise.all(
+    locales.map(async (locale) => {
+      const total = pageCount((await getPosts(locale)).length);
+
+      // Page 1 lives at /blog; only the rest need their own route.
+      return Array.from({ length: total - 1 }, (_, index) => ({
+        params: { locale, page: String(index + 2) },
+      }));
+    })
+  );
+
+  return paths.flat();
 }
 
 const locale = Astro.params.locale as Locale;
+const page = Number(Astro.params.page);
 const t = useTranslations(locale);
 const posts = await getPosts(locale);
 ---
 
-<BaseLayout title={t('nav.blog')} description={t('blog.lead')}>
+<BaseLayout title={`${t('nav.blog')} — ${page}`} description={t('blog.lead')}>
   <Section width="wide">
     <PostList
-      posts={pageSlice(posts, 1)}
+      posts={pageSlice(posts, page)}
       locale={locale}
-      currentPage={1}
+      currentPage={page}
       lastPage={pageCount(posts.length)}
     />
   </Section>

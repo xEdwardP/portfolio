@@ -1,0 +1,114 @@
+---
+title: 'When the external API fails: designing the degraded path'
+description: A downed third-party service should not take your product with it. How to decide what degrades, by how much, and why the most useful fallback is rarely the most accurate one.
+publishDate: 2026-08-09
+tags:
+  - architecture
+  - resilience
+  - postgis
+---
+
+Almost everything we build depends on something we do not control. A payment gateway, a maps
+service, an email provider. The question is not whether they will fail — it is what happens to
+your product when they do.
+
+The usual answer is a `try/catch` that logs the error and returns a 500. That is not handling
+the failure; that is forwarding it to the user.
+
+## The concrete case
+
+On a ride-hailing platform, price depends on distance. And real distance is not the straight
+line between two points: it is the route through streets, with their turns and one-ways. That
+is what the Google Directions API is for.
+
+Now the uncomfortable question: **if Directions does not respond, what do you show the user
+who is trying to book a ride?**
+
+The three possible answers are not worth the same:
+
+1. **An error.** The user cannot book. Zero revenue, and they probably leave for a competitor.
+2. **Wait and retry.** The user watches a spinner for eight seconds and then sees an error
+   anyway.
+3. **Estimate worse, but estimate.** The user gets an approximate price and can book the ride.
+
+## Why the third one wins
+
+The key is asking **what accuracy is actually required**. An estimated fare is not an invoice:
+it is a number that lets the passenger decide whether the trip is worth it. If the real route
+ends up costing 8% more, the product still works. If there is no number, there is no trip.
+
+That is the difference between _degrading_ and _failing_. Degrading means delivering lower
+quality while still serving the function. Failing means not serving it.
+
+And this is where most fallbacks are designed badly: people look for the replacement closest
+to the original, when what they should look for is **the cheapest replacement that still
+solves the user's problem**.
+
+## The implementation
+
+The database already knows geography. With PostGIS, the straight-line distance between two
+points is a function call:
+
+```sql
+SELECT ST_Distance(
+  origin::geography,
+  destination::geography
+) AS meters;
+```
+
+That gives the straight line, which is always shorter than the real route. Multiplying it by a
+correction factor brings it closer:
+
+```ts
+const meters = await straightLineDistance(origin, destination);
+const estimate = meters * 1.3;
+```
+
+That `1.3` is not magic: it is the detour factor, the average ratio between street distance
+and straight-line distance in a city. It varies with the street layout — a grid city sits near
+1.2, one with a river or hills in the way goes higher — and it is worth measuring against your
+own data instead of inheriting it.
+
+The whole thing:
+
+```ts
+async function computeDistance(origin: Point, destination: Point) {
+  try {
+    return await directions.distance(origin, destination);
+  } catch {
+    const straight = await db.geographicDistance(origin, destination);
+    return straight * DETOUR_FACTOR;
+  }
+}
+```
+
+Nine lines. The difference between a platform that stops selling when Google has a bad day and
+one that does not.
+
+## What to decide before writing the fallback
+
+Three questions, in this order:
+
+**What is the minimum function?** Not "compute the exact distance", but "let the user book a
+ride at a price they can accept". The fallback serves the function, not the implementation.
+
+**What accuracy is good enough?** If you cannot answer that with a number, you cannot evaluate
+whether the fallback works. Here: a 10–15% margin of error is tolerable in an estimate; 60% is
+not.
+
+**With what you already have?** The best fallback uses something already in the system. Here it
+was PostGIS, already installed for the driver search radius. No new dependency.
+
+## The detail everyone forgets
+
+A degraded path nobody watches becomes a permanent path. If Directions has been down for three
+weeks and everyone is being charged from the rough estimate, the system works — and nobody
+notices it has been charging wrong for three weeks.
+
+The fallback needs to leave a trace: a metric, a log, something that answers "how often are we
+degrading?". Without that you did not build resilience, you built a silent outage.
+
+---
+
+This pattern is taken from [Catracho GO](/en/projects/catracho-go/), where fare calculation
+uses Google Directions with a PostGIS fallback.
