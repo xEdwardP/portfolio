@@ -10,9 +10,11 @@ import { slugOf, type Project } from '@/features/projects/queries';
 interface Props {
   project: Project;
   locale: Locale;
+  headingLevel?: 2 | 3;
 }
 
-const { project, locale } = Astro.props;
+const { project, locale, headingLevel = 3 } = Astro.props;
+const Heading = `h${headingLevel}` as 'h2' | 'h3';
 const t = useTranslations(locale);
 const { data } = project;
 
@@ -23,16 +25,16 @@ const visibleStack = data.stack.slice(0, 4);
 const remaining = data.stack.length - visibleStack.length;
 ---
 
-<Card interactive class="flex h-full flex-col">
+<Card interactive class="flex h-full reveal flex-col">
   <div class="mb-2 flex items-start justify-between gap-3">
-    <h3 class="font-display text-lg font-semibold tracking-tight">
+    <Heading class="font-display text-lg font-semibold tracking-tight">
       <a
         href={href}
         class="transition group-hover:text-accent after:absolute after:inset-0"
       >
         {data.title}
       </a>
-    </h3>
+    </Heading>
     {isCaseStudy && <Badge variant="outline">{t('projects.caseStudy')}</Badge>}
   </div>
 

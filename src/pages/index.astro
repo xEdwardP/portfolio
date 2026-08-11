@@ -1,16 +1,47 @@
 ---
-import { defaultLocale, locales } from '@/i18n/config';
+import { defaultLocale, htmlLang, locales } from '@/i18n/config';
+import { ui } from '@/i18n/ui';
+import { ogImagePath } from '@/features/og/template';
 
 const fallback = `/${defaultLocale}/`;
+const site = Astro.site ?? Astro.url.origin;
+
+const title = ui[defaultLocale]['site.title'];
+const description = ui[defaultLocale]['site.description'];
+const ogImage = new URL(ogImagePath(defaultLocale), site).href;
 ---
 
 <!doctype html>
-<html lang={defaultLocale}>
+<html lang={htmlLang[defaultLocale]}>
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <link rel="canonical" href={fallback} />
-    <title>Edward Pineda</title>
+    <link rel="canonical" href={new URL(fallback, site).href} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={new URL(fallback, site).href} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogImage} />
+
+    {
+      locales.map((locale) => (
+        <link
+          rel="alternate"
+          hreflang={locale}
+          href={new URL(`/${locale}/`, site).href}
+        />
+      ))
+    }
+    <link rel="alternate" hreflang="x-default" href={new URL(fallback, site).href} />
+
     <script is:inline define:vars={{ locales, fallback }}>
       const match = navigator.languages
         .map((tag) => tag.split('-')[0])
@@ -22,7 +53,9 @@ const fallback = `/${defaultLocale}/`;
       <meta http-equiv="refresh" content="0; url=/es/" />
     </noscript>
   </head>
+
   <body>
+    <h1>{title}</h1>
     <a href={fallback}>Continuar / Continue</a>
   </body>
 </html>

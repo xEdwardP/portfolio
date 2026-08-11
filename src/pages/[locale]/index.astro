@@ -21,15 +21,17 @@ const featured = await getFeaturedProjects(locale);
 
 <BaseLayout>
   <Section width="wide" class="py-16 sm:py-24">
-    <p class="font-mono text-sm text-accent">{t('home.eyebrow')}</p>
+    <p class="animate-rise font-mono text-sm text-accent">{t('home.eyebrow')}</p>
     <h1
-      class="mt-3 max-w-3xl font-display text-4xl leading-tight font-bold tracking-tight sm:text-6xl"
+      class="mt-3 max-w-3xl animate-rise font-display text-4xl leading-tight font-bold tracking-tight [animation-delay:60ms] sm:text-6xl"
     >
       {t('home.title')}
     </h1>
-    <p class="mt-5 max-w-xl text-lg text-muted">{t('home.lead')}</p>
+    <p class="mt-5 max-w-xl animate-rise text-lg text-muted [animation-delay:120ms]">
+      {t('home.lead')}
+    </p>
 
-    <div class="mt-8 flex flex-wrap gap-3">
+    <div class="mt-8 flex animate-rise flex-wrap gap-3 [animation-delay:180ms]">
       <Button href={localizePath('/projects', locale)}>
         {t('home.cta.projects')}
         <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />

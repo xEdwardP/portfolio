@@ -36,7 +36,11 @@ const ecosystem = ecosystems.find((item) => item.id === data.ecosystem);
 const statusKey = `project.status.${data.status}` as const;
 ---
 
-<BaseLayout title={data.title} description={data.summary}>
+<BaseLayout
+  title={data.title}
+  description={data.summary}
+  ogRoute={`projects/${slugOf(project)}`}
+>
   <Section width="prose">
     <a
       href={localizePath('/projects', locale)}

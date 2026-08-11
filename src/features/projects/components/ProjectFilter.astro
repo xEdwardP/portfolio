@@ -1,0 +1,102 @@
+---
+export interface FilterOption {
+  id: string;
+  label: string;
+  count: number;
+}
+
+interface Props {
+  options: FilterOption[];
+  allLabel: string;
+  legend: string;
+}
+
+const { options, allLabel, legend } = Astro.props;
+const total = options.reduce((sum, option) => sum + option.count, 0);
+
+const button =
+  'cursor-pointer rounded-full border border-strong px-3 py-1.5 text-sm font-medium text-muted transition hover:bg-raised aria-pressed:border-accent aria-pressed:bg-accent aria-pressed:text-on-accent';
+---
+
+<div
+  hidden
+  data-project-filter
+  role="group"
+  aria-label={legend}
+  class="flex flex-wrap gap-2"
+>
+  <button type="button" data-filter="all" aria-pressed="true" class={button}>
+    {allLabel}
+    <span class="font-mono text-xs opacity-70">{total}</span>
+  </button>
+
+  {
+    options.map((option) => (
+      <button type="button" data-filter={option.id} aria-pressed="false" class={button}>
+        {option.label} <span class="font-mono text-xs opacity-70">{option.count}</span>
+      </button>
+    ))
+  }
+</div>
+
+<p class="sr-only" aria-live="polite" data-filter-status></p>
+
+<script>
+  const ALL = 'all';
+
+  const root = document.querySelector<HTMLElement>('[data-project-filter]');
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-filter]')];
+  const cards = [...document.querySelectorAll<HTMLElement>('[data-project]')];
+  const empty = document.querySelector<HTMLElement>('[data-projects-empty]');
+  const status = document.querySelector<HTMLElement>('[data-filter-status]');
+
+  const ids = buttons.map((element) => element.dataset.filter ?? ALL);
+
+  function apply(active: string, announce: boolean) {
+    let visible = 0;
+
+    for (const card of cards) {
+      const matches = active === ALL || card.dataset.ecosystem === active;
+      card.hidden = !matches;
+      if (matches) visible += 1;
+    }
+
+    if (empty) empty.hidden = visible > 0;
+
+    for (const element of buttons) {
+      element.setAttribute('aria-pressed', String(element.dataset.filter === active));
+    }
+
+    if (announce && status) {
+      const label = buttons.find((element) => element.dataset.filter === active);
+      status.textContent = label?.textContent?.trim() ?? '';
+    }
+  }
+
+  function fromUrl(): string {
+    const value = new URLSearchParams(window.location.search).get('ecosystem');
+    return value && ids.includes(value) ? value : ALL;
+  }
+
+  if (root) {
+    root.hidden = false;
+    apply(fromUrl(), false);
+
+    root.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement;
+      const pressed = target.closest<HTMLButtonElement>('[data-filter]');
+      if (!pressed) return;
+
+      const active = pressed.dataset.filter ?? ALL;
+      const url = new URL(window.location.href);
+
+      if (active === ALL) url.searchParams.delete('ecosystem');
+      else url.searchParams.set('ecosystem', active);
+
+      window.history.pushState({}, '', url);
+      apply(active, true);
+    });
+
+    window.addEventListener('popstate', () => apply(fromUrl(), true));
+  }
+</script>

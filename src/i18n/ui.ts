@@ -34,6 +34,10 @@ const es = {
   'footer.rights': 'Todos los derechos reservados',
   'footer.source': 'Código fuente',
 
+  'error.title': 'Esta página no existe',
+  'error.body': 'El enlace puede estar roto o la página se movió.',
+  'error.home': 'Ir al inicio',
+
   'soon.title': 'En construcción',
   'soon.body': 'Esta sección llega en un sprint próximo.',
 
@@ -157,6 +161,10 @@ const en = {
   'footer.built': 'Built with Astro and Tailwind CSS',
   'footer.rights': 'All rights reserved',
   'footer.source': 'Source code',
+
+  'error.title': 'This page does not exist',
+  'error.body': 'The link may be broken, or the page moved.',
+  'error.home': 'Go to the home page',
 
   'soon.title': 'Under construction',
   'soon.body': 'This section ships in an upcoming sprint.',

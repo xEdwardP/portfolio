@@ -1,9 +1,8 @@
 ---
-import { PUBLIC_WEB3FORMS_KEY } from 'astro:env/client';
 import { Icon } from 'astro-icon/components';
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
 import Section from '@/shared/components/ui/Section.astro';
-import ContactForm, { type ContactLabels } from '@/features/contact/islands/ContactForm';
+import ContactForm from '@/features/contact/components/ContactForm.astro';
 import { profile } from '@/data/profile';
 import { linkAttrs } from '@/shared/lib/links';
 import { locales, type Locale } from '@/i18n/config';
@@ -15,30 +14,6 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
-
-const labels: ContactLabels = {
-  fields: {
-    name: t('contact.field.name'),
-    email: t('contact.field.email'),
-    subject: t('contact.field.subject'),
-    message: t('contact.field.message'),
-  },
-  errors: {
-    name: t('contact.error.name'),
-    email: t('contact.error.email'),
-    subject: t('contact.error.subject'),
-    message: t('contact.error.message'),
-  },
-  failures: {
-    misconfigured: t('contact.fail.misconfigured'),
-    rejected: t('contact.fail.rejected'),
-    network: t('contact.fail.network'),
-  },
-  send: t('contact.send'),
-  sending: t('contact.sending'),
-  success: t('contact.success'),
-  honeypot: t('contact.honeypot'),
-};
 
 const channels = [
   { href: `mailto:${profile.email}`, icon: 'lucide:mail', label: profile.email },
@@ -55,7 +30,7 @@ const channels = [
     <p class="mt-4 text-lg text-muted">{t('contact.lead')}</p>
 
     <div class="mt-10">
-      <ContactForm labels={labels} accessKey={PUBLIC_WEB3FORMS_KEY} client:idle />
+      <ContactForm locale={locale} />
       <noscript>
         <p class="rounded-lg border border-subtle bg-raised p-4 text-sm text-muted">
           {t('contact.noscript')}

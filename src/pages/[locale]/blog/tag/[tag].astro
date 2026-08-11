@@ -44,7 +44,7 @@ const posts = await getPostsByTag(locale, tag);
         <ul class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {posts.map((post) => (
             <li class="contents">
-              <PostCard post={post} locale={locale} />
+              <PostCard post={post} locale={locale} headingLevel={2} />
             </li>
           ))}
         </ul>

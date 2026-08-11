@@ -1,0 +1,229 @@
+---
+import { PUBLIC_WEB3FORMS_KEY } from 'astro:env/client';
+import { limits } from '../schema';
+import { createContactService } from '../service';
+import type { Locale } from '@/i18n/config';
+import { useTranslations } from '@/i18n/utils';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+const service = createContactService(PUBLIC_WEB3FORMS_KEY);
+
+const fields = [
+  {
+    name: 'name',
+    type: 'text',
+    autocomplete: 'name',
+    min: limits.name.min,
+    max: limits.name.max,
+  },
+  { name: 'email', type: 'email', autocomplete: 'email', max: limits.email.max },
+  {
+    name: 'subject',
+    type: 'text',
+    autocomplete: 'off',
+    min: limits.subject.min,
+    max: limits.subject.max,
+  },
+  {
+    name: 'message',
+    type: 'textarea',
+    autocomplete: 'off',
+    min: limits.message.min,
+    max: limits.message.max,
+  },
+] as const;
+
+const control =
+  'w-full rounded-lg border border-control bg-surface px-3 py-2 text-sm text-text transition placeholder:text-muted aria-[invalid=true]:border-danger';
+---
+
+<form
+  data-contact-form
+  action={service.formAction}
+  method="post"
+  class="grid gap-5 sm:grid-cols-2"
+>
+  {
+    Object.entries(service.formFields).map(([name, value]) => (
+      <input type="hidden" name={name} value={value} />
+    ))
+  }
+
+  {
+    fields.map((field) => (
+      <div
+        class:list={
+          field.type === 'textarea' || field.name === 'subject' ? 'sm:col-span-2' : ''
+        }
+      >
+        <label for={`contact-${field.name}`} class="mb-1.5 block text-sm font-medium">
+          {t(`contact.field.${field.name}`)}
+        </label>
+
+        {field.type === 'textarea' ? (
+          <textarea
+            id={`contact-${field.name}`}
+            name={field.name}
+            data-field
+            rows="6"
+            required
+            minlength={field.min}
+            maxlength={field.max}
+            class={control}
+          />
+        ) : (
+          <input
+            id={`contact-${field.name}`}
+            name={field.name}
+            data-field
+            type={field.type}
+            required
+            minlength={'min' in field ? field.min : undefined}
+            maxlength={field.max}
+            autocomplete={field.autocomplete}
+            class={control}
+          />
+        )}
+
+        <p id={`contact-${field.name}-error`} hidden class="mt-1.5 text-sm text-danger">
+          {t(`contact.error.${field.name}`)}
+        </p>
+      </div>
+    ))
+  }
+
+  <div class="absolute left-[-9999px]" aria-hidden="true">
+    <label for="contact-company">{t('contact.honeypot')}</label>
+    <input
+      id="contact-company"
+      name="company"
+      type="text"
+      tabindex="-1"
+      autocomplete="off"
+    />
+  </div>
+
+  <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
+    <button
+      type="submit"
+      data-submit
+      class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span data-label="idle">{t('contact.send')}</span>
+      <span data-label="sending" hidden>{t('contact.sending')}</span>
+    </button>
+
+    <p class="text-sm" aria-live="polite" data-status></p>
+  </div>
+
+  {/* Message source for the script, so no user-facing string lives in JavaScript. */}
+  <div hidden data-messages>
+    <span data-message="success" data-tone="text-success">{t('contact.success')}</span>
+    <span data-message="misconfigured" data-tone="text-danger">
+      {t('contact.fail.misconfigured')}
+    </span>
+    <span data-message="rejected" data-tone="text-danger"
+      >{t('contact.fail.rejected')}</span
+    >
+    <span data-message="network" data-tone="text-danger">{t('contact.fail.network')}</span
+    >
+  </div>
+</form>
+
+<script>
+  import { PUBLIC_WEB3FORMS_KEY } from 'astro:env/client';
+  import { createContactService } from '@/features/contact/service';
+  import { validate, type FieldName } from '@/features/contact/schema';
+
+  type Control = HTMLInputElement | HTMLTextAreaElement;
+
+  const form = document.querySelector<HTMLFormElement>('[data-contact-form]');
+
+  if (form) {
+    const service = createContactService(PUBLIC_WEB3FORMS_KEY);
+    const controls = [...form.querySelectorAll<Control>('[data-field]')];
+    const status = form.querySelector<HTMLElement>('[data-status]');
+    const messages = form.querySelector<HTMLElement>('[data-messages]');
+    const submit = form.querySelector<HTMLButtonElement>('[data-submit]');
+    const idle = form.querySelector<HTMLElement>('[data-label="idle"]');
+    const sending = form.querySelector<HTMLElement>('[data-label="sending"]');
+
+    form.noValidate = true;
+
+    const markInvalid = (control: Control, invalid: boolean) => {
+      const error = document.getElementById(`${control.id}-error`);
+      control.setAttribute('aria-invalid', String(invalid));
+
+      if (invalid) control.setAttribute('aria-describedby', `${control.id}-error`);
+      else control.removeAttribute('aria-describedby');
+
+      if (error) error.hidden = !invalid;
+    };
+
+    const report = (kind: string) => {
+      const source = messages?.querySelector<HTMLElement>(`[data-message="${kind}"]`);
+      if (!status || !source) return;
+      status.textContent = source.textContent?.trim() ?? '';
+      status.className = `text-sm ${source.dataset.tone ?? ''}`;
+    };
+
+    const setSending = (active: boolean) => {
+      if (submit) submit.disabled = active;
+      if (idle) idle.hidden = active;
+      if (sending) sending.hidden = !active;
+    };
+
+    for (const control of controls) {
+      control.addEventListener('input', () => {
+        if (control.getAttribute('aria-invalid') === 'true') markInvalid(control, false);
+      });
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (submit?.disabled) return;
+
+      const data = new FormData(form);
+
+      if (data.get('company')) {
+        form.reset();
+        report('success');
+        return;
+      }
+
+      for (const control of controls) control.value = control.value.trim();
+
+      const checked = validate(Object.fromEntries(data));
+      const invalid = checked.ok ? [] : checked.invalid;
+
+      for (const control of controls) {
+        markInvalid(control, invalid.includes(control.name as FieldName));
+      }
+
+      if (!checked.ok) {
+        controls.find((control) => control.name === invalid[0])?.focus();
+        return;
+      }
+
+      setSending(true);
+      if (status) status.textContent = '';
+
+      const result = await service.send(checked.data);
+
+      setSending(false);
+
+      if (result.ok) {
+        form.reset();
+        report('success');
+      } else {
+        report(result.reason);
+      }
+    });
+  }
+</script>

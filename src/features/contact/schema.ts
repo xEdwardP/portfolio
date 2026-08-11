@@ -1,25 +1,36 @@
-import * as z from 'zod';
+export const limits = {
+  name: { min: 2, max: 80 },
+  email: { max: 120 },
+  subject: { min: 3, max: 120 },
+  message: { min: 20, max: 2000 },
+} as const;
 
-export const contactSchema = z.object({
-  name: z.string().trim().min(2).max(80),
-  email: z.email().max(120),
-  subject: z.string().trim().min(3).max(120),
-  message: z.string().trim().min(20).max(2000),
-});
-
-export type ContactInput = z.infer<typeof contactSchema>;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const fields = ['name', 'email', 'subject', 'message'] as const;
 
 export type FieldName = (typeof fields)[number];
 
+export type ContactInput = Record<FieldName, string>;
+
 export type ValidationResult =
   { ok: true; data: ContactInput } | { ok: false; invalid: FieldName[] };
 
-export function validate(input: unknown): ValidationResult {
-  const parsed = contactSchema.safeParse(input);
-  if (parsed.success) return { ok: true, data: parsed.data };
+function isValid(field: FieldName, value: string): boolean {
+  if (field === 'email') return value.length <= limits.email.max && EMAIL.test(value);
 
-  const fieldErrors = z.flattenError(parsed.error).fieldErrors;
-  return { ok: false, invalid: fields.filter((field) => fieldErrors[field]?.length) };
+  const { min, max } = limits[field];
+  return value.length >= min && value.length <= max;
+}
+
+export function validate(input: unknown): ValidationResult {
+  const source = (input ?? {}) as Partial<Record<FieldName, unknown>>;
+
+  const data = Object.fromEntries(
+    fields.map((field) => [field, String(source[field] ?? '').trim()])
+  ) as ContactInput;
+
+  const invalid = fields.filter((field) => !isValid(field, data[field]));
+
+  return invalid.length > 0 ? { ok: false, invalid } : { ok: true, data };
 }

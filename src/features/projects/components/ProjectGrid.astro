@@ -6,16 +6,17 @@ import type { Project } from '@/features/projects/queries';
 interface Props {
   projects: Project[];
   locale: Locale;
+  headingLevel?: 2 | 3;
 }
 
-const { projects, locale } = Astro.props;
+const { projects, locale, headingLevel } = Astro.props;
 ---
 
 <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
   {
     projects.map((project) => (
       <li class="contents" data-project data-ecosystem={project.data.ecosystem}>
-        <ProjectCard project={project} locale={locale} />
+        <ProjectCard project={project} locale={locale} headingLevel={headingLevel} />
       </li>
     ))
   }

@@ -2,7 +2,7 @@
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
 import Section from '@/shared/components/ui/Section.astro';
 import ProjectGrid from '@/features/projects/components/ProjectGrid.astro';
-import ProjectFilter from '@/features/projects/islands/ProjectFilter';
+import ProjectFilter from '@/features/projects/components/ProjectFilter.astro';
 import { countByEcosystem, getProjects } from '@/features/projects/queries';
 import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
@@ -35,7 +35,6 @@ const options = ecosystems
 
     <div class="mt-8">
       <ProjectFilter
-        client:idle
         options={options}
         allLabel={t('projects.all')}
         legend={t('projects.filter')}
@@ -43,7 +42,7 @@ const options = ecosystems
     </div>
 
     <div class="mt-8">
-      <ProjectGrid projects={projects} locale={locale} />
+      <ProjectGrid projects={projects} locale={locale} headingLevel={2} />
       <p hidden data-projects-empty class="py-12 text-center text-muted">
         {t('projects.empty')}
       </p>

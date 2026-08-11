@@ -10,15 +10,17 @@ import { tagLabel } from '@/data/tags';
 interface Props {
   post: Post;
   locale: Locale;
+  headingLevel?: 2 | 3;
 }
 
-const { post, locale } = Astro.props;
+const { post, locale, headingLevel = 3 } = Astro.props;
+const Heading = `h${headingLevel}` as 'h2' | 'h3';
 const t = useTranslations(locale);
 const href = localizePath(`/blog/${slugOf(post)}`, locale);
 const minutes = readingMinutes(post);
 ---
 
-<Card interactive class="relative flex h-full flex-col">
+<Card interactive class="relative flex h-full reveal flex-col">
   <p class="mb-2 font-mono text-xs text-muted">
     <time datetime={isoDate(post.data.publishDate)}>
       {formatDate(post.data.publishDate, locale)}
@@ -28,14 +30,14 @@ const minutes = readingMinutes(post);
     {t('blog.readingTime')}
   </p>
 
-  <h3 class="mb-2 font-display text-lg font-semibold tracking-tight">
+  <Heading class="mb-2 font-display text-lg font-semibold tracking-tight">
     <a
       href={href}
       class="transition group-hover:text-accent after:absolute after:inset-0"
     >
       {post.data.title}
     </a>
-  </h3>
+  </Heading>
 
   <p class="mb-4 flex-1 text-sm text-muted">{post.data.description}</p>
 

@@ -35,7 +35,11 @@ const toc = headings.filter((heading) => heading.depth === 2);
 const minutes = readingMinutes(post);
 ---
 
-<BaseLayout title={post.data.title} description={post.data.description}>
+<BaseLayout
+  title={post.data.title}
+  description={post.data.description}
+  ogRoute={`blog/${slugOf(post)}`}
+>
   <Section width="prose">
     <a
       href={localizePath('/blog', locale)}

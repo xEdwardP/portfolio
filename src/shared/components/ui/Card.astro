@@ -11,7 +11,8 @@ const { interactive = false, class: className, ...rest } = Astro.props;
 <article
   class:list={[
     'rounded-xl border border-subtle bg-surface p-5',
-    interactive && 'group transition hover:border-strong',
+    interactive &&
+      'group transition duration-200 hover:-translate-y-0.5 hover:border-strong hover:shadow-lg hover:shadow-black/5',
     className,
   ]}
   {...rest}

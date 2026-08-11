@@ -7,11 +7,13 @@ import SkipLink from '@/shared/components/SkipLink.astro';
 import { htmlLang, type Locale } from '@/i18n/config';
 import { getAlternates, getLocaleFromPath, useTranslations } from '@/i18n/utils';
 import { personSchema } from '@/shared/lib/seo';
+import { ogImagePath } from '@/features/og/template';
 import '@/styles/global.css';
 
 interface Props {
   title?: string;
   description?: string;
+  ogRoute?: string;
 }
 
 const locale: Locale = getLocaleFromPath(Astro.url.pathname);
@@ -25,6 +27,7 @@ const description = Astro.props.description ?? t('site.description');
 const canonical = new URL(Astro.url.pathname, site).href;
 const alternates = getAlternates(Astro.url.pathname, site);
 const schema = personSchema(locale, site);
+const ogImage = new URL(ogImagePath(locale, Astro.props.ogRoute), site).href;
 ---
 
 <!doctype html>
@@ -49,7 +52,12 @@ const schema = personSchema(locale, site);
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
     <meta property="og:locale" content={htmlLang[locale]} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={title} />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogImage} />
 
     <Font cssVariable="--font-inter" preload />
     <Font cssVariable="--font-general-sans" preload />

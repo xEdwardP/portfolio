@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fields, validate } from './schema';
+import { fields, limits, validate } from './schema';
 
 const valid = {
   name: 'Ada Lovelace',
@@ -55,5 +55,32 @@ describe('contact schema', () => {
 
   it('rejects a payload that is not an object', () => {
     expect(validate(null).ok).toBe(false);
+  });
+
+  it.each(['name', 'subject', 'message'] as const)(
+    'rejects a %s longer than its limit',
+    (field) => {
+      const value = 'a'.repeat(limits[field].max + 1);
+      expect(validate({ ...valid, [field]: value })).toMatchObject({
+        ok: false,
+        invalid: [field],
+      });
+    }
+  );
+
+  it.each(['name', 'subject', 'message'] as const)(
+    'accepts a %s exactly at its limit',
+    (field) => {
+      const value = 'a'.repeat(limits[field].max);
+      expect(validate({ ...valid, [field]: value }).ok).toBe(true);
+    }
+  );
+
+  it('rejects an email longer than its limit', () => {
+    const local = 'a'.repeat(limits.email.max);
+    expect(validate({ ...valid, email: `${local}@example.com` })).toMatchObject({
+      ok: false,
+      invalid: ['email'],
+    });
   });
 });
