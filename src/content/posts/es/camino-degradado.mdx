@@ -68,8 +68,8 @@ const estimado = metros * 1.3;
 ```
 
 Ese `1.3` no es magia: es el factor de rodeo, la relación media entre la distancia por calles
-y la distancia en línea recta en una ciudad. Varía según el trazado urbano —una ciudad en
-cuadrícula se acerca a 1.2, una con río o cerros de por medio sube—, y conviene medirlo
+y la distancia en línea recta en una ciudad. Varía según el trazado urbano (una ciudad en
+cuadrícula se acerca a 1.2, una con río o cerros de por medio sube), y conviene medirlo
 contra datos propios en vez de heredarlo.
 
 El resultado completo:
@@ -108,7 +108,7 @@ añadir ninguna dependencia.
 
 Un camino degradado que nadie observa se convierte en un camino permanente. Si Directions
 lleva tres semanas caída y todo el mundo cobra con la estimación aproximada, el sistema
-funciona —y nadie se entera de que lleva tres semanas cobrando mal.
+funciona, y nadie se entera de que lleva tres semanas cobrando mal.
 
 El fallback necesita dejar rastro: una métrica, un log, algo que responda a la pregunta "¿con
 qué frecuencia estamos degradando?". Sin eso no construiste resiliencia, construiste una

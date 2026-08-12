@@ -23,6 +23,9 @@
   --color-strong: var(--border-strong);
   --color-control: var(--border-control);
 
+  --color-overlay: var(--overlay);
+  --color-on-overlay: var(--on-overlay);
+
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
@@ -54,6 +57,77 @@
   }
 }
 
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility hero-grid {
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 10%, transparent 75%);
+}
+
+@utility hero-glow {
+  background-image: radial-gradient(
+    ellipse 55% 45% at 50% -5%,
+    color-mix(in oklab, var(--accent) 16%, transparent),
+    transparent 70%
+  );
+}
+
+@utility nav-underline {
+  position: relative;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0.75rem;
+    bottom: 0.25rem;
+    height: 1px;
+    background-color: currentColor;
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.25s ease;
+  }
+
+  &:hover::after,
+  &:focus-visible::after,
+  &[aria-current='page']::after {
+    transform: scaleX(1);
+  }
+}
+
+@utility link-underline {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+  background-size: 0 1px;
+  transition: background-size 0.25s ease;
+
+  &:hover,
+  &:focus-visible {
+    background-size: 100% 1px;
+  }
+}
+
+@utility reveal-stagger {
+  @supports (animation-timeline: view()) {
+    & > li:nth-child(3n + 2) .reveal {
+      animation-range: entry 0% cover 28%;
+    }
+
+    & > li:nth-child(3n) .reveal {
+      animation-range: entry 0% cover 36%;
+    }
+  }
+}
+
 @utility animate-rise {
   animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -70,6 +144,31 @@
   html {
     scroll-behavior: smooth;
     scroll-padding-top: 5rem;
+  }
+
+  body:has(dialog[open]) {
+    overflow: hidden;
+  }
+
+  dialog[data-lightbox],
+  dialog[data-lightbox]::backdrop {
+    opacity: 0;
+    transition:
+      opacity 0.2s ease,
+      display 0.2s allow-discrete,
+      overlay 0.2s allow-discrete;
+  }
+
+  dialog[data-lightbox][open],
+  dialog[data-lightbox][open]::backdrop {
+    opacity: 1;
+  }
+
+  @starting-style {
+    dialog[data-lightbox][open],
+    dialog[data-lightbox][open]::backdrop {
+      opacity: 0;
+    }
   }
 
   header {

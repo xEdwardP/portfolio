@@ -41,6 +41,7 @@ const textPairs: [string, string][] = [
   ['--success', '--bg'],
   ['--warning', '--bg'],
   ['--danger', '--bg'],
+  ['--on-overlay', '--overlay'],
 ];
 
 const uiPairs: [string, string][] = [

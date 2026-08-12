@@ -11,6 +11,8 @@ import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
 import { getProjects, slugOf } from '@/features/projects/queries';
+import { galleryFor } from '@/features/projects/gallery';
+import ProjectGallery from '@/features/projects/components/ProjectGallery.astro';
 
 export async function getStaticPaths() {
   const paths = await Promise.all(
@@ -34,6 +36,7 @@ const { Content } = await render(project);
 
 const ecosystem = ecosystems.find((item) => item.id === data.ecosystem);
 const statusKey = `project.status.${data.status}` as const;
+const gallery = galleryFor(slugOf(project));
 ---
 
 <BaseLayout
@@ -54,6 +57,8 @@ const statusKey = `project.status.${data.status}` as const;
       {data.title}
     </h1>
     <p class="mt-3 text-lg text-muted">{data.summary}</p>
+
+    <ProjectGallery images={gallery} title={data.title} locale={locale} />
 
     <dl
       class="mt-8 grid grid-cols-2 gap-4 border-y border-subtle py-5 text-sm sm:grid-cols-4"
@@ -113,7 +118,16 @@ const statusKey = `project.status.${data.status}` as const;
       <Content components={{ a: ContentLink }} />
     </Prose>
 
-    <div class="mt-10 flex flex-wrap gap-3 border-t border-subtle pt-6">
+    <div class="mt-10 flex flex-wrap items-center gap-3 border-t border-subtle pt-6">
+      {
+        data.private && (
+          <span class="inline-flex items-center gap-2 rounded-lg border border-subtle bg-raised px-3 py-1.5 text-sm text-muted">
+            <Icon name="lucide:lock" class="size-4" aria-hidden="true" />
+            {t('project.private')}
+            <span class="sr-only">. {t('project.privateNote')}</span>
+          </span>
+        )
+      }
       {
         data.repos.map((repo) => (
           <Button href={repo.url} variant="secondary" size="sm">

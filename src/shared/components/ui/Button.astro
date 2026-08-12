@@ -22,7 +22,7 @@ const {
 } = Astro.props;
 
 const base =
-  'inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:transition-transform [&_svg]:duration-200 hover:[&_svg]:translate-x-0.5';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-accent text-on-accent hover:bg-accent-hover',

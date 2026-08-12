@@ -22,6 +22,9 @@
   --success: #15803d;
   --warning: #a16207;
   --danger: #dc2626;
+
+  --overlay: #09090b;
+  --on-overlay: #fafafa;
 }
 
 .dark {
@@ -49,6 +52,9 @@
   --success: #4ade80;
   --warning: #facc15;
   --danger: #f87171;
+
+  --overlay: #09090b;
+  --on-overlay: #fafafa;
 }
 
 :root {

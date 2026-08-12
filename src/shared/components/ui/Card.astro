@@ -3,14 +3,16 @@ import type { HTMLAttributes } from 'astro/types';
 
 interface Props extends HTMLAttributes<'article'> {
   interactive?: boolean;
+  padded?: boolean;
 }
 
-const { interactive = false, class: className, ...rest } = Astro.props;
+const { interactive = false, padded = true, class: className, ...rest } = Astro.props;
 ---
 
 <article
   class:list={[
-    'rounded-xl border border-subtle bg-surface p-5',
+    'rounded-xl border border-subtle bg-surface',
+    padded && 'p-5',
     interactive &&
       'group transition duration-200 hover:-translate-y-0.5 hover:border-strong hover:shadow-lg hover:shadow-black/5',
     className,

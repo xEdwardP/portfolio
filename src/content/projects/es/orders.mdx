@@ -1,7 +1,7 @@
 ---
 title: Orders
 summary: Plataforma de comercio electrónico en .NET 8 con Blazor WebAssembly, construida sobre Controller → Unit of Work → Repository con implementaciones genéricas por capa.
-role: Aplicación completa — API, SPA y pruebas
+role: 'Aplicación completa: API, SPA y pruebas'
 tier: case-study
 ecosystem: dotnet
 category: web
@@ -15,8 +15,8 @@ stack:
   - MSTest
 year: 2025
 status: completed
-featured: true
-order: 3
+featured: false
+order: 4
 repos:
   - label: Repositorio
     url: https://github.com/xEdwardP/Orders
@@ -28,8 +28,8 @@ highlights:
 
 ## El problema
 
-Un catálogo con carrito y pedidos tiene una decena de entidades —categorías, productos,
-países, estados, ciudades, usuarios, pedidos— y todas necesitan lo mismo: listar con
+Un catálogo con carrito y pedidos tiene una decena de entidades (categorías, productos,
+países, estados, ciudades, usuarios, pedidos) y todas necesitan lo mismo: listar con
 paginación, buscar, crear, editar y borrar. Escribir ese código trece veces es la forma más
 rápida de que trece endpoints se comporten de trece maneras distintas.
 
@@ -76,7 +76,7 @@ el mismo lenguaje en los dos extremos.
 ### Detalles que suelen olvidarse
 
 `IFileStorage` envuelve Azure Blob Storage con un método de interfaz por defecto,
-`EditFileAsync`, que borra el blob anterior antes de subir el nuevo — el descuido habitual
+`EditFileAsync`, que borra el blob anterior antes de subir el nuevo, el descuido habitual
 que llena la cuenta de imágenes huérfanas.
 
 `AuthenticationProviderJWT` guarda el token, parsea sus claims y alimenta el

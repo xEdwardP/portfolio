@@ -1,0 +1,111 @@
+---
+title: Skully
+summary: 'Desktop IT asset management system in .NET 10, built on four-layer Clean Architecture with permissions enforced down to the individual operation.'
+role: 'Full application: domain, use cases, persistence and UI'
+tier: case-study
+ecosystem: dotnet
+category: desktop
+stack:
+  - .NET 10
+  - Windows Forms
+  - Entity Framework Core 10
+  - SQL Server
+  - FluentValidation
+  - AutoMapper
+  - QuestPDF
+  - xUnit v3
+year: 2026
+status: completed
+featured: true
+order: 3
+private: true
+highlights:
+  - Clean Architecture with a domain that has zero NuGet dependencies
+  - 82 use cases, one per operation, returning Result instead of throwing
+  - A 12-module by 6-permission matrix, editable from inside the app
+  - Soft delete backed by filtered unique indexes
+---
+
+## The problem
+
+An organisation handing out laptops, monitors and licences always ends up in the same place:
+three spreadsheets that disagree, nobody sure who has the machine bought two years ago, and
+a licence that expired last month without anyone noticing.
+
+The inventory is the easy part. The hard part is everything around it: who handed it over,
+in what condition, why it went into maintenance, how many seats of a licence are still free
+and, above all, who is allowed to touch what.
+
+## Architecture decisions
+
+### Four layers and one rule that never bends
+
+Dependencies always point inward: **Presentation → Application → Domain**, with
+Infrastructure implementing the interfaces the inner layers define.
+
+The proof that the rule holds is measurable: **`Skully.Domain` has not a single NuGet
+dependency**. Its 19 entities, enums and repository contracts have no idea that Entity
+Framework, Windows Forms or QuestPDF exist. Swapping the ORM or the UI would not force a
+change in the domain.
+
+### One use case per operation
+
+Instead of services that grow until they hold twenty methods, there are **82 classes with a
+single `ExecuteAsync`**. `CreateAssetUseCase` creates an asset and does nothing else.
+
+It sounds excessive right up until something has to change: the class you edit is exactly
+the one that matters, and so is its unit test.
+
+### Expected failures are not exceptions
+
+Every use case returns `Result<T>`. An asset already being assigned is not a program fault.
+It is a perfectly foreseen business answer, and it travels as data all the way to the UI,
+which displays it.
+
+Exceptions stay reserved for what genuinely was not expected. It is the same judgement I
+applied in Orders with `ActionResponse<T>`, and the reason neither application has defensive
+`try/catch` blocks scattered through the presentation layer.
+
+### Nothing is ever deleted
+
+`BaseEntity` carries `DeletedAt`, and the generic repository marks records instead of
+removing them. Every query filters on `DeletedAt == null`.
+
+The detail that usually breaks this pattern is unique indexes: a deleted asset would hold on
+to its serial number forever. The fix is **filtered** indexes, with
+`HasFilter("[DeletedAt] IS NULL")`, so a deleted record frees the slot without vanishing
+from the database. And no foreign key cascades: every relationship is `Restrict`, so
+referential integrity is a decision the use case makes, not the engine.
+
+### Permissions down to the operation, not the screen
+
+The matrix is **12 modules by 6 permissions** (show, save, update, delete, print and
+reprint) for each role, edited from inside the application without recompiling.
+
+The UI honours it at two levels: sidebar buttons disappear when the show permission is
+missing, and action buttons are disabled one by one. A consultant never sees a form they
+cannot use.
+
+### An audit trail that does not rely on remembering
+
+`SaveChangesAsync` stamps `CreatedAt` and `UpdatedAt` on every save, and each asset status
+change writes a row into `AssetStatusHistory` with the previous state, the new one, the
+reason, who did it and when. There is no path that changes a status and skips the log.
+
+## Outcome
+
+Assets with six lifecycle states, internal components and peripherals, assignments with
+returns, licences with seat tracking, a maintenance log, and four PDF reports with filters
+and the company header.
+
+The dashboard answers the question that actually matters on a Monday morning: what is in
+maintenance, how many assignments are open, and which licences expire in the next thirty
+days.
+
+**82 unit tests**, concentrated where the business risk is highest: creating assets and
+assignments, returns, authentication, licence assignment and revocation, and every deletion
+path with its referential-integrity check. The tests stand in for `IUnitOfWork`, `IMapper`
+and `IPasswordHasher`, so they touch neither the database nor the UI.
+
+> This is the project where Repository and Unit of Work show up in their fullest form: a
+> single `DbContext`, 19 repositories and one `SaveChangesAsync` per operation.

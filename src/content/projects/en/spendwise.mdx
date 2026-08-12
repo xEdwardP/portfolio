@@ -1,6 +1,6 @@
 ---
 title: SpendWise
-summary: A Flutter expense tracker that reads a receipt total with the camera. OCR runs entirely on the device — the photo is never sent to a server for recognition.
+summary: 'A Flutter expense tracker that reads a receipt total with the camera. OCR runs entirely on the device: the photo is never sent to a server for recognition.'
 role: Full mobile application
 tier: case-study
 ecosystem: flutter
@@ -15,7 +15,7 @@ stack:
 year: 2025
 status: completed
 featured: true
-order: 4
+order: 5
 repos:
   - label: Repository
     url: https://github.com/xEdwardP/SpendWise
@@ -28,7 +28,7 @@ highlights:
 ## The problem
 
 Logging an expense by hand is tedious enough that people stop doing it, and a finance app
-without data is useless. The friction is not in the arithmetic — it is in typing the amount
+without data is useless. The friction is not in the arithmetic. It is in typing the amount
 every single time.
 
 The obvious fix is reading it off the receipt with the camera. The obvious fix brings two
@@ -70,7 +70,7 @@ through `StreamBuilder`.
 
 That is a deliberate call about proportion: at this application's size, adding a state
 manager would have been more ceremony than benefit. The services (`OcrService`,
-`StorageService`) _are_ isolated, which is where the separation actually pays — OCR can be
+`StorageService`) _are_ isolated, which is where the separation actually pays: OCR can be
 swapped without touching a single screen.
 
 ### Cursor-based pagination

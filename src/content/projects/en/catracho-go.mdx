@@ -77,7 +77,7 @@ not a loose column: the commission is a wallet-to-wallet transfer and lands in t
 auditable history as any other movement.
 
 Top-ups come through **PayPal Checkout** and driver payouts leave through the same channel.
-Drivers cannot top up — only cash out.
+Drivers cannot top up, only cash out.
 
 ### Layered security
 
@@ -88,20 +88,20 @@ and `forbidNonWhitelisted`, so a field not declared in the DTO never reaches the
 
 Images upload from the client straight to **Cloudinary**, so the backend never processes
 files. It does validate that the URL belongs to `res.cloudinary.com`, and it calls the
-Cloudinary API to delete the previous photo when one is replaced — avoiding the storage leak
+Cloudinary API to delete the previous photo when one is replaced, avoiding the storage leak
 this pattern usually causes.
 
 ## Outcome
 
-Three applications — API, web and mobile — covering all three platform roles from a single
+Three applications (API, web and mobile) covering all three platform roles from a single
 source of truth.
 
 On the web frontend, passenger and driver views are not a stretched mobile app: above the
 desktop breakpoint they use a real web application layout, with an information panel beside
 the map and table-style lists. Below it, the mobile design stays intact.
 
-The admin dashboard computes its KPIs — active trips, daily revenue, available drivers,
-pending payouts — in **a single aggregated endpoint** on the backend, instead of firing five
+The admin dashboard computes its KPIs (active trips, daily revenue, available drivers,
+pending payouts) in **a single aggregated endpoint** on the backend, instead of firing five
 queries from the browser.
 
 > Academic project developed as a team under the name "Los Inges".

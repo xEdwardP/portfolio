@@ -1,12 +1,14 @@
 ---
 import { Icon } from 'astro-icon/components';
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
+import Badge from '@/shared/components/ui/Badge.astro';
 import Button from '@/shared/components/ui/Button.astro';
 import Card from '@/shared/components/ui/Card.astro';
 import Section from '@/shared/components/ui/Section.astro';
 import ProjectGrid from '@/features/projects/components/ProjectGrid.astro';
 import { getFeaturedProjects } from '@/features/projects/queries';
 import { ecosystems } from '@/data/profile';
+import { skills } from '@/data/skills';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
 
@@ -16,59 +18,100 @@ export function getStaticPaths() {
 
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
+
 const featured = await getFeaturedProjects(locale);
+const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
 ---
 
 <BaseLayout>
-  <Section width="wide" class="py-16 sm:py-24">
-    <p class="animate-rise font-mono text-sm text-accent">{t('home.eyebrow')}</p>
-    <h1
-      class="mt-3 max-w-3xl animate-rise font-display text-4xl leading-tight font-bold tracking-tight [animation-delay:60ms] sm:text-6xl"
-    >
-      {t('home.title')}
-    </h1>
-    <p class="mt-5 max-w-xl animate-rise text-lg text-muted [animation-delay:120ms]">
-      {t('home.lead')}
-    </p>
-
-    <div class="mt-8 flex animate-rise flex-wrap gap-3 [animation-delay:180ms]">
-      <Button href={localizePath('/projects', locale)}>
-        {t('home.cta.projects')}
-        <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-      </Button>
-      <Button href={localizePath('/contact', locale)} variant="secondary">
-        {t('home.cta.contact')}
-      </Button>
+  <div class="relative isolate">
+    <div class="pointer-events-none absolute inset-0 -z-10 hero-glow" aria-hidden="true">
     </div>
-  </Section>
+    <div class="pointer-events-none absolute inset-0 -z-10 hero-grid" aria-hidden="true">
+    </div>
+
+    <Section width="wide" class="py-20 sm:py-28">
+      <p class="animate-rise font-mono text-sm text-accent">{t('home.eyebrow')}</p>
+
+      <h1
+        class="mt-4 max-w-4xl animate-rise font-display text-5xl leading-[1.05] font-bold tracking-tight text-balance [animation-delay:60ms] sm:text-7xl lg:text-8xl"
+      >
+        {t('home.title')}
+      </h1>
+
+      <p
+        class="mt-6 max-w-2xl animate-rise text-lg text-muted [animation-delay:120ms] sm:text-xl"
+      >
+        {t('home.lead')}
+      </p>
+
+      <div class="mt-9 flex animate-rise flex-wrap gap-3 [animation-delay:180ms]">
+        <Button href={localizePath('/projects', locale)}>
+          {t('home.cta.projects')}
+          <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
+        </Button>
+        <Button href={localizePath('/contact', locale)} variant="secondary">
+          {t('home.cta.contact')}
+        </Button>
+      </div>
+    </Section>
+  </div>
 
   <Section width="wide" title={t('home.featured')}>
     <ProjectGrid projects={featured} locale={locale} />
     <a
       href={localizePath('/projects', locale)}
-      class="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-accent"
+      class="mt-8 inline-flex items-center gap-1.5 link-underline text-sm font-medium text-accent"
     >
       {t('home.cta.projects')}
       <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
     </a>
   </Section>
 
-  <Section width="wide" title={t('home.stack')}>
-    <ul class="grid grid-cols-2 gap-4 sm:grid-cols-4">
+  <Section width="wide" title={t('home.skills')}>
+    <p class="-mt-3 mb-8 max-w-xl text-muted">{t('home.skillsLead')}</p>
+
+    <ul class="grid gap-4 sm:grid-cols-2">
       {
-        ecosystems.map((ecosystem) => (
-          <li>
-            <Card class="flex flex-col items-center gap-2 py-6">
-              <Icon
-                name={ecosystem.icon}
-                class:list={['size-7', ecosystem.color]}
-                aria-hidden="true"
-              />
-              <span class="text-sm font-medium">{ecosystem.label}</span>
+        skills.map((group) => (
+          <li class="contents">
+            <Card padded={false} class="flex reveal flex-col overflow-hidden">
+              <div class:list={['h-1 w-full', meta[group.ecosystem].bar]} />
+
+              <div class="flex flex-1 flex-col gap-3 p-5">
+                <div class="flex items-center gap-2.5">
+                  <Icon
+                    name={meta[group.ecosystem].icon}
+                    class:list={['size-5 shrink-0', meta[group.ecosystem].color]}
+                    aria-hidden="true"
+                  />
+                  <h3 class="font-display font-semibold">
+                    {meta[group.ecosystem].label}
+                  </h3>
+                </div>
+
+                <p class="text-sm text-muted">{group.headline[locale]}</p>
+
+                <ul class="mt-auto flex flex-wrap gap-1.5 pt-1">
+                  {group.items.slice(0, 5).map((item) => (
+                    <li>
+                      <Badge>{item}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </Card>
           </li>
         ))
       }
     </ul>
+
+    <a
+      href={localizePath('/about', locale)}
+      class="mt-8 inline-flex items-center gap-1.5 link-underline text-sm font-medium text-accent"
+    >
+      {t('home.allSkills')}
+      <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
+    </a>
   </Section>
 </BaseLayout>

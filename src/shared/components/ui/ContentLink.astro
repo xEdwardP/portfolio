@@ -8,4 +8,4 @@ const { href, ...rest } = Astro.props;
 const target = String(href ?? '');
 ---
 
-<a href={href} {...linkAttrs(target)} {...rest}><slot /></a>
+<a href={href} {...linkAttrs(target)} class="link-underline" {...rest}><slot /></a>

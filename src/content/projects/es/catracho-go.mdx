@@ -78,7 +78,7 @@ billetera de la plataforma. Esa billetera es un usuario real del sistema
 billeteras y queda en el mismo historial auditable que cualquier otro movimiento.
 
 Las recargas entran por **PayPal Checkout** y los retiros de conductor salen por el mismo
-canal. Los conductores no pueden recargar — solo cobrar.
+canal. Los conductores no pueden recargar, solo cobrar.
 
 ### Seguridad por capas
 
@@ -89,20 +89,20 @@ Contraseñas con **Argon2id**, no bcrypt. `ValidationPipe` global con `whitelist
 
 Las imágenes se suben desde el cliente directo a **Cloudinary**, así que el backend nunca
 procesa archivos. Pero sí valida que la URL pertenezca a `res.cloudinary.com` y llama a la
-API de Cloudinary para borrar la foto anterior cuando se reemplaza — evitando la fuga de
+API de Cloudinary para borrar la foto anterior cuando se reemplaza, evitando la fuga de
 almacenamiento típica de este patrón.
 
 ## Resultado
 
-Tres aplicaciones —API, web y móvil— cubriendo los tres roles de la plataforma con un solo
+Tres aplicaciones (API, web y móvil) cubriendo los tres roles de la plataforma con un solo
 origen de verdad.
 
 En el frontend web, las vistas de pasajero y conductor no son una app móvil estirada: por
 encima del breakpoint de escritorio usan un layout real de aplicación web, con panel de
 información junto al mapa y listas tipo tabla. Por debajo, se mantiene el diseño móvil.
 
-El panel de administración calcula sus KPIs —viajes activos, ingresos del día, conductores
-disponibles, retiros pendientes— en **un único endpoint agregado** en el backend, en lugar de
+El panel de administración calcula sus KPIs (viajes activos, ingresos del día, conductores
+disponibles, retiros pendientes) en **un único endpoint agregado** en el backend, en lugar de
 disparar cinco consultas desde el navegador.
 
 > Proyecto académico desarrollado en equipo bajo el nombre "Los Inges".

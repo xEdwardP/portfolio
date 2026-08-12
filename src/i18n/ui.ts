@@ -1,5 +1,5 @@
 const es = {
-  'site.title': 'Edward Pineda — Desarrollador Full Stack y Mobile',
+  'site.title': 'Edward Pineda · Desarrollador Full Stack y Mobile',
   'site.description':
     'Portafolio de Edward Pineda. Desarrollo full stack y móvil con Laravel, ASP.NET Core, TypeScript y Flutter.',
 
@@ -29,10 +29,12 @@ const es = {
   'home.cta.contact': 'Contactar',
   'home.featured': 'Proyectos destacados',
   'home.stack': 'Con qué trabajo',
+  'home.skills': 'Lo que sé hacer',
+  'home.skillsLead':
+    'Cuatro ecosistemas, no cuatro tutoriales. Cada uno con proyectos detrás.',
+  'home.allSkills': 'Ver todo el detalle',
 
-  'footer.built': 'Construido con Astro y Tailwind CSS',
   'footer.rights': 'Todos los derechos reservados',
-  'footer.source': 'Código fuente',
 
   'error.title': 'Esta página no existe',
   'error.body': 'El enlace puede estar roto o la página se movió.',
@@ -41,7 +43,8 @@ const es = {
   'soon.title': 'En construcción',
   'soon.body': 'Esta sección llega en un sprint próximo.',
 
-  'projects.lead': 'Doce proyectos en cuatro ecosistemas. Filtra por el que te interese.',
+  'projects.lead':
+    'Trabajo en cuatro ecosistemas. Filtra por el que te interese y mira cómo resuelvo en cada uno.',
   'projects.filter': 'Filtrar por ecosistema',
   'projects.all': 'Todos',
   'projects.empty': 'No hay proyectos con ese filtro.',
@@ -60,6 +63,17 @@ const es = {
   'project.status.active': 'En desarrollo',
   'project.status.completed': 'Terminado',
   'project.status.archived': 'Archivado',
+
+  'project.private': 'Repositorio privado',
+  'project.privateNote': 'El código no es público. Puedo enseñarlo en una entrevista.',
+
+  'project.gallery': 'Galería del proyecto',
+  'project.screenshot': 'Captura',
+  'project.prevImage': 'Imagen anterior',
+  'project.nextImage': 'Imagen siguiente',
+  'project.goToImage': 'Ir a la imagen',
+  'project.expand': 'Ver en pantalla completa',
+  'project.closeImage': 'Cerrar la imagen',
 
   'category.web': 'Web',
   'category.mobile': 'Móvil',
@@ -127,7 +141,7 @@ const es = {
 } as const;
 
 const en = {
-  'site.title': 'Edward Pineda — Full Stack & Mobile Developer',
+  'site.title': 'Edward Pineda · Full Stack & Mobile Developer',
   'site.description':
     'Portfolio of Edward Pineda. Full stack and mobile development with Laravel, ASP.NET Core, TypeScript and Flutter.',
 
@@ -157,10 +171,12 @@ const en = {
   'home.cta.contact': 'Get in touch',
   'home.featured': 'Featured projects',
   'home.stack': 'What I work with',
+  'home.skills': 'What I can build',
+  'home.skillsLead':
+    'Four ecosystems, not four tutorials. Each one has projects behind it.',
+  'home.allSkills': 'See the full breakdown',
 
-  'footer.built': 'Built with Astro and Tailwind CSS',
   'footer.rights': 'All rights reserved',
-  'footer.source': 'Source code',
 
   'error.title': 'This page does not exist',
   'error.body': 'The link may be broken, or the page moved.',
@@ -170,7 +186,7 @@ const en = {
   'soon.body': 'This section ships in an upcoming sprint.',
 
   'projects.lead':
-    'Twelve projects across four ecosystems. Filter by the one you care about.',
+    'I work across four ecosystems. Filter by the one you care about and see how I solve things in each.',
   'projects.filter': 'Filter by ecosystem',
   'projects.all': 'All',
   'projects.empty': 'No projects match that filter.',
@@ -189,6 +205,18 @@ const en = {
   'project.status.active': 'In progress',
   'project.status.completed': 'Completed',
   'project.status.archived': 'Archived',
+
+  'project.private': 'Private repository',
+  'project.privateNote':
+    'The source is not public. I can walk through it in an interview.',
+
+  'project.gallery': 'Project gallery',
+  'project.screenshot': 'Screenshot',
+  'project.prevImage': 'Previous image',
+  'project.nextImage': 'Next image',
+  'project.goToImage': 'Go to image',
+  'project.expand': 'View full screen',
+  'project.closeImage': 'Close the image',
 
   'category.web': 'Web',
   'category.mobile': 'Mobile',

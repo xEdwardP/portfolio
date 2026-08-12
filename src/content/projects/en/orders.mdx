@@ -1,7 +1,7 @@
 ---
 title: Orders
 summary: A .NET 8 e-commerce platform with Blazor WebAssembly, built on Controller → Unit of Work → Repository with a generic implementation at every layer.
-role: Full application — API, SPA and tests
+role: 'Full application: API, SPA and tests'
 tier: case-study
 ecosystem: dotnet
 category: web
@@ -15,8 +15,8 @@ stack:
   - MSTest
 year: 2025
 status: completed
-featured: true
-order: 3
+featured: false
+order: 4
 repos:
   - label: Repository
     url: https://github.com/xEdwardP/Orders
@@ -28,13 +28,13 @@ highlights:
 
 ## The problem
 
-A catalog with a cart and orders has a dozen entities — categories, products, countries,
-states, cities, users, orders — and all of them need the same things: paginated listing,
+A catalog with a cart and orders has a dozen entities (categories, products, countries,
+states, cities, users, orders) and all of them need the same things: paginated listing,
 search, create, edit, delete. Writing that code thirteen times is the fastest way to end up
 with thirteen endpoints behaving thirteen different ways.
 
 Then there is the other half: confirming an order is not inserting a row. It has to validate
-stock, create the detail lines, decrement inventory and empty the cart — all or nothing.
+stock, create the detail lines, decrement inventory and empty the cart, all or nothing.
 
 ## Architecture decisions
 
@@ -75,7 +75,7 @@ language at both ends.
 ### Details that usually get forgotten
 
 `IFileStorage` wraps Azure Blob Storage with a default interface method, `EditFileAsync`,
-that deletes the previous blob before uploading the new one — the common oversight that fills
+that deletes the previous blob before uploading the new one, the common oversight that fills
 an account with orphaned images.
 
 `AuthenticationProviderJWT` stores the token, parses its claims and feeds Blazor's

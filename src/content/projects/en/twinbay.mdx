@@ -13,7 +13,7 @@ stack:
 year: 2025
 status: completed
 featured: false
-order: 6
+order: 7
 repos:
   - label: Repository
     url: https://github.com/xEdwardP/TwinBay
@@ -27,7 +27,7 @@ highlights:
 
 Charging for time looks like simple arithmetic until you hit the real edges of a parking lot.
 Do you bill a full hour to someone leaving at 62 minutes? What about someone who leaves a car
-for four days — four days of hourly rate?
+for four days? Four days of hourly rate?
 
 A system that answers those two questions badly generates disputes at the counter every day.
 And the rules cannot live in the cashier's head: they have to live in the system, or every
@@ -41,9 +41,9 @@ Hourly billing applies a grace period that **grows with elapsed time**:
 
 | Elapsed hours | Grace      |
 | ------------- | ---------- |
-| 1–8           | 10 minutes |
-| 9–18          | 15 minutes |
-| 19–23         | 20 minutes |
+| 1 to 8        | 10 minutes |
+| 9 to 18       | 15 minutes |
+| 19 to 23      | 20 minutes |
 
 The reasoning is proportional: a few extra minutes weigh heavily on a short stay and barely
 at all on a long one. A fixed 10-minute grace would be unfair at the top; a fixed 20 would be
@@ -59,7 +59,7 @@ That is a business rule embedded in ticket closing, not a decision left to the o
 ### State lives on the ticket, not on the screen
 
 Opening a ticket requires an existing space, vehicle and rate, and is rejected if the vehicle
-already has an `activo` one — the validation that prevents billing the same car twice. The
+already has an `activo` one, the validation that prevents billing the same car twice. The
 customer is **derived from the vehicle**, never typed in, so there is no way to attach a stay
 to the wrong customer.
 

@@ -15,7 +15,8 @@ interface Frontmatter {
   order: number;
   featured: boolean;
   stack: string[];
-  repos: { label: string; url: string }[];
+  repos?: { label: string; url: string }[];
+  private?: boolean;
 }
 
 function load(locale: string): Map<string, Frontmatter> {
@@ -55,9 +56,28 @@ describe('project content', () => {
     }
   );
 
-  it('gives every project at least one repository link', () => {
+  it('gives every public project at least one repository link', () => {
     for (const [slug, entry] of byLocale.es) {
-      expect({ slug, repos: entry.repos.length > 0 }).toEqual({ slug, repos: true });
+      const reachable = entry.private === true || (entry.repos?.length ?? 0) > 0;
+      expect({ slug, reachable }).toEqual({ slug, reachable: true });
+    }
+  });
+
+  it('never links a repository on a project marked private', () => {
+    for (const locale of locales) {
+      for (const [slug, entry] of byLocale[locale]) {
+        if (entry.private !== true) continue;
+        expect({ slug, repos: entry.repos?.length ?? 0 }).toEqual({ slug, repos: 0 });
+      }
+    }
+  });
+
+  it('keeps the private flag consistent across locales', () => {
+    for (const [slug, entry] of byLocale.es) {
+      expect({ slug, private: byLocale.en.get(slug)?.private }).toEqual({
+        slug,
+        private: entry.private,
+      });
     }
   });
 

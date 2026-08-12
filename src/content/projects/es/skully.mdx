@@ -1,0 +1,112 @@
+---
+title: Skully
+summary: 'Sistema de escritorio para gestión de activos de TI en .NET 10, con Clean Architecture en cuatro capas y permisos por operación.'
+role: 'Aplicación completa: dominio, casos de uso, persistencia e interfaz'
+tier: case-study
+ecosystem: dotnet
+category: desktop
+stack:
+  - .NET 10
+  - Windows Forms
+  - Entity Framework Core 10
+  - SQL Server
+  - FluentValidation
+  - AutoMapper
+  - QuestPDF
+  - xUnit v3
+year: 2026
+status: completed
+featured: true
+order: 3
+private: true
+highlights:
+  - Clean Architecture con el dominio sin una sola dependencia de NuGet
+  - 82 casos de uso, uno por operación, devolviendo Result en vez de excepciones
+  - Matriz de 12 módulos por 6 permisos, editable desde la propia aplicación
+  - Borrado lógico con índices únicos filtrados
+---
+
+## El problema
+
+Una organización que reparte laptops, monitores y licencias termina con la misma escena:
+tres hojas de cálculo que no coinciden, nadie sabe quién tiene el equipo que se compró hace
+dos años, y una licencia que venció el mes pasado sin que saltara ninguna alarma.
+
+El inventario es la parte fácil. Lo difícil es lo que ocurre alrededor: quién lo entregó, en
+qué estado, por qué pasó a mantenimiento, cuántos asientos de una licencia quedan libres, y,
+sobre todo, quién tiene permiso para tocar cada cosa.
+
+## Decisiones de arquitectura
+
+### Cuatro capas y una regla que no se negocia
+
+Las dependencias apuntan siempre hacia adentro: **Presentation → Application → Domain**, e
+Infrastructure implementa las interfaces que definen las capas internas.
+
+La prueba de que la regla se respeta es medible: **`Skully.Domain` no tiene ni una
+dependencia de NuGet**. Las 19 entidades, los enums y los contratos de repositorio no saben
+que existen Entity Framework, Windows Forms ni QuestPDF. Cambiar de ORM o de interfaz no
+obliga a tocar el dominio.
+
+### Un caso de uso por operación
+
+En lugar de servicios que crecen hasta tener veinte métodos, hay **82 clases con un solo
+`ExecuteAsync`**. `CreateAssetUseCase` crea un activo y no hace nada más.
+
+Suena excesivo hasta que hay que cambiar algo: la clase que se modifica es exactamente la
+que corresponde, y su prueba unitaria también.
+
+### Los errores esperados no son excepciones
+
+Cada caso de uso devuelve `Result<T>`. Que un activo ya esté asignado no es un fallo del
+programa: es una respuesta de negocio perfectamente prevista, y viaja como dato hasta la
+interfaz, que la muestra.
+
+Las excepciones quedan reservadas para lo que de verdad no se esperaba. Es el mismo criterio
+que apliqué en Orders con `ActionResponse<T>`, y la razón por la que ninguna de las dos
+aplicaciones tiene un `try/catch` defensivo repartido por la capa de presentación.
+
+### Nada se borra
+
+`BaseEntity` lleva `DeletedAt`, y el repositorio genérico marca en lugar de eliminar. Toda
+consulta filtra por `DeletedAt == null`.
+
+El detalle que suele romper este patrón son los índices únicos: un activo borrado seguiría
+ocupando su número de serie para siempre. Se resuelve con índices **filtrados**,
+con `HasFilter("[DeletedAt] IS NULL")`, para que el registro eliminado deje libre el hueco sin
+desaparecer de la base de datos. Y ninguna llave foránea usa borrado en cascada: todas son
+`Restrict`, así que la integridad referencial la decide el caso de uso y no el motor.
+
+### Permisos hasta la operación, no hasta la pantalla
+
+La matriz es de **12 módulos por 6 permisos** (ver, guardar, actualizar, borrar, imprimir y
+reimprimir) por cada rol, y se edita desde la propia aplicación sin recompilar.
+
+La interfaz la respeta en dos niveles: los botones del menú lateral se ocultan si falta el
+permiso de ver, y los botones de acción se deshabilitan uno a uno. Un consultor no ve un
+formulario que no puede usar.
+
+### Auditoría que no depende de acordarse
+
+`SaveChangesAsync` asigna `CreatedAt` y `UpdatedAt` en cada guardado, y cada cambio de estado
+de un activo escribe una fila en `AssetStatusHistory` con el estado anterior, el nuevo, el
+motivo, quién lo hizo y cuándo. No hay forma de cambiar un estado y saltarse la bitácora.
+
+## Resultado
+
+Activos con seis estados de ciclo de vida, componentes internos y periféricos, asignaciones
+con devolución, licencias con control de asientos disponibles, bitácora de mantenimientos y
+cuatro reportes en PDF con filtros y encabezado de la empresa.
+
+El dashboard responde la pregunta que importa un lunes por la mañana: qué hay en
+mantenimiento, cuántas asignaciones están activas y qué licencias vencen en los próximos
+treinta días.
+
+**82 pruebas unitarias**, concentradas donde el riesgo de negocio es mayor: creación de
+activos y asignaciones, devoluciones, autenticación, alta y revocación de licencias, y todas
+las rutas de borrado con su verificación de integridad referencial. Las pruebas usan dobles
+de `IUnitOfWork`, `IMapper` e `IPasswordHasher`, así que no tocan ni la base de datos ni la
+interfaz.
+
+> Es el proyecto donde Repository y Unit of Work aparecen en su forma más completa: un solo
+> `DbContext`, 19 repositorios y un único `SaveChangesAsync` por operación.

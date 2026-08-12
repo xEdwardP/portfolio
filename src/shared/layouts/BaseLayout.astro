@@ -21,7 +21,7 @@ const t = useTranslations(locale);
 
 const site = Astro.site ?? Astro.url.origin;
 const title = Astro.props.title
-  ? `${Astro.props.title} — ${t('site.title')}`
+  ? `${Astro.props.title} · ${t('site.title')}`
   : t('site.title');
 const description = Astro.props.description ?? t('site.description');
 const canonical = new URL(Astro.url.pathname, site).href;

@@ -12,7 +12,7 @@ interface Props {
 const { projects, locale, headingLevel } = Astro.props;
 ---
 
-<ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+<ul class="grid gap-4 reveal-stagger sm:grid-cols-2 lg:grid-cols-3">
   {
     projects.map((project) => (
       <li class="contents" data-project data-ecosystem={project.data.ecosystem}>

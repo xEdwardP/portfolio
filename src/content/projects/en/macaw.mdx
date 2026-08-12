@@ -1,7 +1,7 @@
 ---
 title: Macaw
 summary: 'A university peer-tutoring marketplace where money never moves directly between users: credits are frozen in escrow and only released once the session is confirmed.'
-role: Full application — API and SPA
+role: 'Full application: API and SPA'
 tier: case-study
 ecosystem: node
 category: web
@@ -57,8 +57,8 @@ Escrow solves the mutual distrust: the student is not paying a stranger, they ar
 system; the tutor knows the money is already set aside before teaching.
 
 The detail that keeps the mechanism from jamming: **if the student does nothing, step 4
-happens automatically after 24 hours** through a scheduled job. Without it, a distracted — or
-bad-faith — student could freeze a tutor's earnings forever.
+happens automatically after 24 hours** through a scheduled job. Without it, a distracted or
+bad-faith student could freeze a tutor's earnings forever.
 
 When there is disagreement the session moves to `disputed` and an administrator resolves it.
 The state of the money always corresponds to an explicit state of the session.

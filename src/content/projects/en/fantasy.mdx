@@ -1,7 +1,7 @@
 ---
 title: Fantasy
 summary: A .NET 8 football prediction game where backend errors travel as codes and the frontend translates them, instead of the API shipping pre-written sentences.
-role: Full application — API, SPA and tests
+role: 'Full application: API, SPA and tests'
 tier: case-study
 ecosystem: dotnet
 category: web
@@ -16,7 +16,7 @@ stack:
 year: 2025
 status: completed
 featured: false
-order: 7
+order: 8
 repos:
   - label: Repository
     url: https://github.com/xEdwardP/Fantasy
@@ -41,7 +41,7 @@ spot: error messages. The interface gets translated carefully, and then the serv
 ### The server sends codes, the client writes the sentence
 
 Every repository and unit-of-work operation returns `ActionResponse<T>` with `WasSuccess`,
-`Message` and `Result`. But `Message` does not carry a sentence — it carries a **code**
+`Message` and `Result`. But `Message` does not carry a sentence. It carries a **code**
 (`ERR001` … `ERR018`).
 
 The frontend translates that code against its `.resx` resource files. The consequence is that
@@ -50,8 +50,8 @@ never requires touching the backend.
 
 ### Generics with escape hatches
 
-The backend uses the same chain as `Orders` — controller, unit of work and repository,
-generic at each level — so a new CRUD entity only writes what differs from the default
+The backend uses the same chain as `Orders` (controller, unit of work and repository,
+generic at each level), so a new CRUD entity only writes what differs from the default
 behaviour.
 
 Concrete controllers override what they need and add `full` variants accepting DTOs instead
@@ -77,7 +77,7 @@ A client cannot request someone else's data by changing a parameter.
 
 ## Outcome
 
-An administrator maintains the catalogs — countries, teams, tournaments, participating teams
+An administrator maintains the catalogs: countries, teams, tournaments, participating teams
 and the match fixture. Any registered user creates a private group, which makes them its
 admin and generates a six-character invitation code, also shareable as a URL.
 
