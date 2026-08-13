@@ -10,6 +10,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "npm run build && wrangler deploy",
     "astro": "astro",
     "typecheck": "astro check",
     "lint": "eslint . --max-warnings 0",
@@ -52,6 +53,7 @@
     "satori": "^0.29.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.66.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.121.0"
   }
 }
