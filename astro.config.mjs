@@ -4,7 +4,7 @@ import sitemap from '@astrojs/sitemap';
 import icon from 'astro-icon';
 import tailwindcss from '@tailwindcss/vite';
 
-const SITE = 'https://portfolio.pages.dev';
+const SITE = 'https://portfolio.edwardjpineda.workers.dev';
 
 export default defineConfig({
   site: SITE,
