@@ -1,5 +1,5 @@
 const es = {
-  'site.title': 'Edward Pineda · Desarrollador Full Stack y Mobile',
+  'site.title': 'Portafolio Personal Edward Pineda',
   'site.description':
     'Portafolio de Edward Pineda. Desarrollo full stack y móvil con Laravel, ASP.NET Core, TypeScript y Flutter.',
 
@@ -33,6 +33,10 @@ const es = {
   'home.skillsLead':
     'Cuatro ecosistemas, no cuatro tutoriales. Cada uno con proyectos detrás.',
   'home.allSkills': 'Ver todo el detalle',
+  'home.closing': 'Hablemos',
+  'home.closingBody':
+    'Busco un equipo donde seguir creciendo como desarrollador. Si algo de lo que viste encaja con lo que necesitas, escríbeme.',
+  'home.closingNote': 'Respondo en menos de 24 horas.',
 
   'footer.rights': 'Todos los derechos reservados',
 
@@ -108,7 +112,17 @@ const es = {
   'about.skills': 'Tecnologías por ecosistema',
   'about.skillsLead':
     'Cada tecnología de esta lista aparece en al menos un proyecto publicado.',
+  'about.toolbox': 'Herramientas y fundamentos',
+  'about.toolboxLead':
+    'Lo que uso a diario, más allá del ecosistema en el que esté trabajando.',
+  'skills.languages': 'Lenguajes',
+  'skills.interface': 'Interfaz y estilos',
+  'skills.data': 'Bases de datos',
+  'skills.tooling': 'Herramientas',
+  'skills.systems': 'Redes y sistemas',
   'about.practices': 'Prácticas',
+  'about.soft': 'Habilidades blandas',
+  'about.spoken': 'Idiomas',
   'about.projectsCount': 'proyectos',
   'about.education': 'Formación',
   'about.ctaTitle': '¿Trabajamos juntos?',
@@ -141,7 +155,7 @@ const es = {
 } as const;
 
 const en = {
-  'site.title': 'Edward Pineda · Full Stack & Mobile Developer',
+  'site.title': 'Edward Pineda Personal Portfolio',
   'site.description':
     'Portfolio of Edward Pineda. Full stack and mobile development with Laravel, ASP.NET Core, TypeScript and Flutter.',
 
@@ -175,6 +189,10 @@ const en = {
   'home.skillsLead':
     'Four ecosystems, not four tutorials. Each one has projects behind it.',
   'home.allSkills': 'See the full breakdown',
+  'home.closing': 'Let us talk',
+  'home.closingBody':
+    'I am looking for a team where I can keep growing as a developer. If anything you saw fits what you need, get in touch.',
+  'home.closingNote': 'I reply within 24 hours.',
 
   'footer.rights': 'All rights reserved',
 
@@ -251,7 +269,16 @@ const en = {
   'about.skills': 'Technologies by ecosystem',
   'about.skillsLead':
     'Every technology listed here appears in at least one published project.',
+  'about.toolbox': 'Tools and fundamentals',
+  'about.toolboxLead': 'What I use daily, whichever ecosystem I happen to be working in.',
+  'skills.languages': 'Languages',
+  'skills.interface': 'Interface and styling',
+  'skills.data': 'Databases',
+  'skills.tooling': 'Tooling',
+  'skills.systems': 'Networks and systems',
   'about.practices': 'Practices',
+  'about.soft': 'Soft skills',
+  'about.spoken': 'Spoken languages',
   'about.projectsCount': 'projects',
   'about.education': 'Education',
   'about.ctaTitle': 'Shall we work together?',

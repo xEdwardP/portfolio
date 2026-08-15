@@ -1,10 +1,21 @@
 import type { Ecosystem } from './profile';
 import type { Locale } from '@/i18n/config';
+import type { UiKey } from '@/i18n/ui';
 
 interface SkillGroup {
   ecosystem: Ecosystem;
   headline: Record<Locale, string>;
   items: readonly string[];
+}
+
+interface ToolGroup {
+  label: UiKey;
+  items: readonly string[];
+}
+
+interface SpokenLanguage {
+  name: Record<Locale, string>;
+  level: Record<Locale, string>;
 }
 
 export const skills = [
@@ -20,8 +31,9 @@ export const skills = [
       'Livewire 3',
       'Filament 3',
       'Blade',
-      'MySQL 8',
       'Eloquent ORM',
+      'MySQL 8',
+      'Bootstrap 5',
     ],
   },
   {
@@ -38,6 +50,7 @@ export const skills = [
       'C#',
       'SQL Server',
       'Windows Forms',
+      'xUnit',
     ],
   },
   {
@@ -51,9 +64,12 @@ export const skills = [
       'NestJS 11',
       'Express 5',
       'React 19',
+      'React Native',
+      'Expo',
       'Prisma',
       'PostgreSQL 17',
       'PostGIS',
+      'Astro',
     ],
   },
   {
@@ -62,9 +78,69 @@ export const skills = [
       es: 'Aplicaciones móviles multiplataforma con backend gestionado.',
       en: 'Cross-platform mobile apps on a managed backend.',
     },
-    items: ['Flutter 3.35', 'Dart 3.10', 'Firebase Auth', 'Cloud Firestore'],
+    items: [
+      'Flutter 3.35',
+      'Dart 3.10',
+      'Firebase Auth',
+      'Cloud Firestore',
+      'Firebase Storage',
+      'Google ML Kit',
+    ],
   },
 ] as const satisfies readonly SkillGroup[];
+
+export const toolbox = [
+  {
+    label: 'skills.languages',
+    items: ['TypeScript', 'JavaScript', 'C#', 'PHP', 'Dart', 'Python', 'SQL'],
+  },
+  {
+    label: 'skills.interface',
+    items: ['HTML5', 'CSS3', 'Tailwind CSS', 'Bootstrap 5'],
+  },
+  {
+    label: 'skills.data',
+    items: ['PostgreSQL', 'PostGIS', 'SQL Server', 'MySQL', 'Cloud Firestore'],
+  },
+  {
+    label: 'skills.tooling',
+    items: ['Git', 'Docker', 'Postman', 'Vite', 'Power BI'],
+  },
+  {
+    label: 'skills.systems',
+    items: ['Linux', 'TCP/IP', 'LAN/WAN'],
+  },
+] as const satisfies readonly ToolGroup[];
+
+export const softSkills = {
+  es: [
+    'Comunicación efectiva',
+    'Trabajo en equipo',
+    'Documentación técnica',
+    'Resolución de problemas',
+    'Aprendizaje autónomo',
+    'Atención al detalle',
+  ],
+  en: [
+    'Effective communication',
+    'Teamwork',
+    'Technical documentation',
+    'Problem solving',
+    'Self directed learning',
+    'Attention to detail',
+  ],
+} satisfies Record<Locale, readonly string[]>;
+
+export const spokenLanguages = [
+  {
+    name: { es: 'Español', en: 'Spanish' },
+    level: { es: 'Nativo', en: 'Native' },
+  },
+  {
+    name: { es: 'Inglés', en: 'English' },
+    level: { es: 'Intermedio', en: 'Intermediate' },
+  },
+] as const satisfies readonly SpokenLanguage[];
 
 export const practices = {
   es: [

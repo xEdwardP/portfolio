@@ -1,5 +1,7 @@
 ---
+import { Image } from 'astro:assets';
 import { Icon } from 'astro-icon/components';
+import mark from '@/assets/brand/mark.png';
 import ThemeToggle from '@/features/theme/ThemeToggle.astro';
 import LanguageSwitcher from '@/shared/components/LanguageSwitcher.astro';
 import { navigation } from '@/data/navigation';
@@ -26,8 +28,16 @@ const links = navigation.map((item) => ({
   <div class="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3">
     <a
       href={localizePath('', locale)}
-      class="mr-auto font-display text-base font-semibold tracking-tight"
+      class="mr-auto flex items-center gap-2.5 font-display text-base font-semibold tracking-tight text-accent transition hover:text-accent-hover"
     >
+      <Image
+        src={mark}
+        alt=""
+        width={61}
+        height={48}
+        loading="eager"
+        class="h-6 w-auto"
+      />
       {profile.shortName}
     </a>
 
