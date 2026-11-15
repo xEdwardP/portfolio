@@ -16,8 +16,9 @@ export class Web3FormsAdapter implements ContactService {
     return { access_key: this.accessKey };
   }
 
-  async send(message: ContactMessage): Promise<ContactResult> {
+  async send(message: ContactMessage, captchaToken: string): Promise<ContactResult> {
     if (!this.accessKey) return { ok: false, reason: 'misconfigured' };
+    if (!captchaToken?.trim()) return { ok: false, reason: 'captcha' };
 
     try {
       const response = await fetch(this.endpoint, {
@@ -25,6 +26,7 @@ export class Web3FormsAdapter implements ContactService {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           access_key: this.accessKey,
+          'h-captcha-response': captchaToken,
           name: message.name,
           email: message.email,
           subject: message.subject,
@@ -32,7 +34,14 @@ export class Web3FormsAdapter implements ContactService {
         }),
       });
 
-      return response.ok ? { ok: true } : { ok: false, reason: 'rejected' };
+      if (!response.ok) return { ok: false, reason: 'rejected' };
+      const result: unknown = await response.json();
+      return result !== null &&
+        typeof result === 'object' &&
+        'success' in result &&
+        result.success === true
+        ? { ok: true }
+        : { ok: false, reason: 'rejected' };
     } catch {
       return { ok: false, reason: 'network' };
     }

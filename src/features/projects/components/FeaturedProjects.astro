@@ -1,0 +1,86 @@
+---
+import { Image } from 'astro:assets';
+import { ecosystems } from '@/data/profile';
+import type { Locale } from '@/i18n/config';
+import { localizePath, useTranslations } from '@/i18n/utils';
+import { coverFor } from '@/features/projects/gallery';
+import { slugOf, type Project } from '@/features/projects/queries';
+
+interface Props {
+  projects: Project[];
+  locale: Locale;
+}
+
+const { projects, locale } = Astro.props;
+const t = useTranslations(locale);
+
+const items = projects.map((project) => {
+  const slug = slugOf(project);
+  const { data } = project;
+  const meta = ecosystems.find((item) => item.id === data.ecosystem);
+  const facts = [meta?.label, String(data.year)];
+  if (data.status === 'active') {
+    facts.push(t('project.status.active').toLocaleLowerCase(locale));
+  }
+
+  return {
+    data,
+    meta,
+    cover: coverFor(slug),
+    href: localizePath(`/projects/${slug}`, locale),
+    facts: facts.filter(Boolean).join(', '),
+  };
+});
+---
+
+<ul class="grid auto-rows-fr gap-5 md:grid-cols-2">
+  {
+    items.map((item) => (
+      <li>
+        <article
+          class:list={[
+            'group relative flex h-full flex-col overflow-hidden rounded-3xl border border-subtle bg-surface transition-colors duration-200',
+            item.meta?.edge,
+          ]}
+        >
+          <div class="aspect-video overflow-hidden border-b border-subtle bg-raised">
+            {item.cover && (
+              <Image
+                src={item.cover}
+                alt=""
+                widths={[480, 800, 1120]}
+                sizes="(min-width: 1152px) 560px, (min-width: 768px) 50vw, 100vw"
+                loading="lazy"
+                class="size-full object-cover object-top-left"
+              />
+            )}
+          </div>
+
+          <div class="grid flex-1 content-start gap-2 p-6 sm:p-7">
+            <p class="inline-flex items-center gap-2 text-sm text-muted">
+              <span
+                class:list={['size-2 rounded-xs', item.meta?.bar]}
+                aria-hidden="true"
+              />
+              {item.facts}
+            </p>
+            <h3 class="font-display text-2xl font-semibold tracking-tight">
+              <a
+                href={item.href}
+                class="transition-colors group-focus-within:text-accent group-hover:text-accent after:absolute after:inset-0"
+              >
+                {item.data.title}
+              </a>
+            </h3>
+            <p class="text-[0.9375rem] text-muted">{item.data.summary}</p>
+            <p class="text-sm text-muted">
+              <span class="font-medium text-text">{item.data.stack[0]}</span>
+              {item.data.stack.length > 1 &&
+                `, ${item.data.stack.slice(1, 4).join(', ')}`}
+            </p>
+          </div>
+        </article>
+      </li>
+    ))
+  }
+</ul>

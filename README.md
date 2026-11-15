@@ -44,6 +44,23 @@ npm run dev
 Las tres variables `PUBLIC_` son obligatorias: sin ellas el build falla nombrando la que
 falta, en lugar de publicar un enlace de contacto vacío.
 
+### Protección del formulario de contacto
+
+Configura `PUBLIC_WEB3FORMS_KEY` y, en el panel de Web3Forms, abre el formulario y
+selecciona **hCaptcha** como captcha obligatorio en sus ajustes de protección contra spam.
+Este paso es necesario para que el proveedor rechace envíos directos sin un token válido;
+la comprobación del navegador por sí sola no los impide.
+
+El sitio utiliza la clave pública de hCaptcha documentada por Web3Forms para el plan
+gratuito. No requiere añadir una clave secreta al portafolio. Si tu formulario usa una clave
+personalizada de un plan de pago, adapta la clave pública del widget a esa configuración.
+
+Comprueba en una prueba controlada del proveedor que un token ausente o inválido se rechaza
+y que una verificación válida permite enviar. No actives la obligatoriedad antes de
+publicar la integración, para evitar bloquear temporalmente el formulario anterior.
+
+Referencia: [hCaptcha en Web3Forms](https://docs.web3forms.com/getting-started/customizations/spam-protection/hcaptcha).
+
 ### Comandos
 
 | Comando | Qué hace |

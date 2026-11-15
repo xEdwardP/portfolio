@@ -1,0 +1,229 @@
+---
+title: 'Compiled'
+description: 'Static reverse engineering of a binary with Ghidra to understand a flawed comparison and derive the input that breaks it.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - reversing
+---
+
+**Difficulty:** Easy **Category:** Static reverse engineering, analysis with Ghidra, exploitation of flawed comparison logic **Room:** [https://tryhackme.com/room/compiled](https://tryhackme.com/room/compiled)
+
+## Room description
+
+Unlike the previous machines, **Compiled** is not a networked machine: it is a **reverse engineering** challenge over a single ELF binary downloaded as a task file. The goal is to analyse the binary, understand its internal password-validation logic, and find (or force) the correct input that makes the program print `Correct!`.
+
+> **Note on placeholders:** this challenge has no target IP or network involved — all the work is done on the `Compiled.Compiled` file downloaded locally. No network placeholders are needed.
+
+---
+
+## 1. Connection setup (VPN)
+
+```bash
+cd thm && sudo openvpn thm.ovpn
+```
+
+Although this particular challenge needs no network connectivity to a machine, keeping the TryHackMe VPN active is part of the standard routine (needed to download the task material from the platform if the workflow requires it, and for future rooms). The `.ovpn` file is the OpenVPN configuration profile provided by TryHackMe for the user/region.
+
+---
+
+## 2. Workspace setup
+
+```bash
+mkdir -p compiled/{scans,content,scripts,loot,exploits} && cd compiled
+```
+
+Download the task file (“Download Task Files” button in the room) and place it inside this folder, or use it directly from the AttackBox at `/root/Rooms/Compiled/`, depending on the TryHackMe workflow.
+
+> **Important notice:** this challenge’s binary **cannot be run inside the TryHackMe AttackBox** (a known limitation of the room). Static analysis with Ghidra still works normally; only direct execution (`./Compiled.Compiled`) needs to happen on a Linux machine of your own (or a local VM).
+
+---
+
+## 3. Identifying the file
+
+```bash
+file Compiled.Compiled
+```
+
+**Expected output:**
+
+```
+Compiled.Compiled: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV),
+dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, ...
+not stripped
+```
+
+Key points from this output:
+
+- **ELF 64-bit**: a native Linux executable for the x86-64 architecture.
+- **PIE (Position Independent Executable)**: the binary can be loaded at any memory address (a standard security measure, ASLR), but it does not affect the static analysis we will do.
+- **dynamically linked**: it depends on external libraries (like `libc`) loaded at runtime.
+- **not stripped**: the binary **keeps the symbol table** (function and variable names were not removed during compilation). This is a big advantage for analysis: Ghidra will be able to show real function names instead of just generic addresses.
+
+### 3.1 Grant execute permission
+
+```bash
+chmod +x Compiled.Compiled
+```
+
+The file is downloaded without the execute bit set; it has to be added manually before it can be run.
+
+---
+
+## 4. First run (observed behaviour)
+
+```bash
+./Compiled.Compiled
+```
+
+The program asks for a password:
+
+```
+Password: test
+Try again!
+```
+
+With any “normal” input the program answers `Try again!`. This confirms there is an internal comparison logic we need to analyse to find (or force) the success condition.
+
+---
+
+## 5. Static analysis with `strings` (recommended first step, not explicitly in the notes)
+
+Before opening Ghidra, a quick first look with `strings` often gives valuable, free hints:
+
+```bash
+strings Compiled.Compiled | less
+```
+
+Among the typical noise of an ELF binary (library symbol names, compiler metadata), several relevant strings stand out:
+
+```
+Password: DoYouEven%sCTF
+__dso_handle
+_init
+Correct!
+Try again!
+```
+
+The string `Password: DoYouEven%sCTF` is especially interesting: it looks like the **`scanf` format** used to read the user’s input, which already hints at part of the program’s mechanics (explained in detail in the next step).
+
+---
+
+## 6. Analysis with Ghidra
+
+Import `Compiled.Compiled` into a new Ghidra project (`File > Import File`), run the default auto-analysis, and navigate to the `main` function in the function listing (`Symbol Tree > Functions`).
+
+### 6.1 Decompiled `main` code
+
+Because the binary is **not stripped**, Ghidra reconstructs a fairly clear pseudo-C version:
+
+```c
+undefined8 main(void) {
+    int iVar1;
+    char local_28 [32];
+
+    fwrite("Password: ", 1, 10, stdout);
+    __isoc99_scanf("DoYouEven%sCTF", local_28);
+
+    iVar1 = strcmp(local_28, "__dso_handle");
+    if ((-1 < iVar1) &&
+        (iVar1 = strcmp(local_28, "__dso_handle"), iVar1 < 1)) {
+        printf("Try again!");
+        return 0;
+    }
+
+    iVar1 = strcmp(local_28, "_init");
+    if (iVar1 == 0) {
+        printf("Correct!");
+    } else {
+        printf("Try again!");
+    }
+    return 0;
+}
+```
+
+### 6.2 Line-by-line explanation
+
+- **`char local_28[32];`**: a 32-byte local buffer where the user’s input will be stored.
+- **`fwrite("Password: ", ...)`**: prints the `Password:` prompt we see when running the binary.
+- **`__isoc99_scanf("DoYouEven%sCTF", local_28);`**: this is the key line and the “trick” of the challenge. `scanf` with a format like `"DoYouEven%sCTF"` not only reads a string (`%s`) into `local_28`, but **expects the user’s full input to literally match the fixed text around the `%s`** (`DoYouEven` before, `CTF` after). That is, the program expects the user to type something shaped like:
+  ```
+  DoYouEven<YOUR_TEXT_HERE>CTF
+  ```
+  And only the `<YOUR_TEXT_HERE>` part (matching the `%s`) is actually captured into `local_28`. If the user does not include the literals `DoYouEven` and `CTF` exactly as the programmer wrote them, `scanf` fails to fully match the pattern and the value captured in `local_28` ends up empty, garbage, or partial — depending on where the parsing fails.
+- **First comparison (`strcmp(local_28, "__dso_handle")` repeated twice with conditions on the return value):** this is a “trap” or _decoy_ comparison — structured a bit confusingly (calling `strcmp` twice with the same argument and checking the result is between 0 and -1 in both cases, which in practice can only be true if `iVar1` is exactly `0`). If `local_28` matched the string `__dso_handle` exactly, the program would return `Try again!` immediately — that is, **`__dso_handle` is deliberately a wrong answer**, placed there to mislead anyone trying to guess the password just by looking at the binary’s `strings` (recall that `__dso_handle` also appeared in the `strings` output, next to `_init`, as plausible “noise”).
+- **Second comparison (`strcmp(local_28, "_init")`):** this is the comparison that actually determines success. If the content of `local_28` is **exactly** the string `_init`, the program prints `Correct!`.
+
+### 6.3 Reconstructing the expected password
+
+Given that:
+
+1. The `scanf` format requires the literal form `DoYouEven<value>CTF`.
+2. The `<value>` (what is actually compared internally) must be exactly `_init`.
+
+The full input to enter at the prompt is:
+
+```
+DoYouEven_init
+```
+
+> Note: although the `scanf` format includes the literal suffix `CTF` (`DoYouEven%sCTF`), in practice `%s` is “greedy” (it consumes characters up to a whitespace or the end of input) and `scanf` does not always require the `CTF` suffix to also be literally present for the `%s` to capture the intermediate value usably — which is why entering only `DoYouEven_init` (without the trailing `CTF`) is the input that works in practice, as confirmed by multiple public solutions of this challenge.
+
+---
+
+## 7. Running with the discovered answer
+
+```bash
+./Compiled.Compiled
+```
+
+```
+Password: DoYouEven_init
+Correct!
+```
+
+Challenge solved! The `Correct!` text itself (or whatever associated message your version of the binary shows) is the room’s confirmation.
+
+---
+
+## 8. Alternative method: `ltrace` (no need to read assembly/pseudo-C)
+
+As a curiosity and a community-documented alternative, this challenge can also be solved **without using Ghidra at all**, relying on `ltrace` (library-call tracing) to watch in real time what the program compares against the user’s input:
+
+```bash
+sudo ltrace ./Compiled.Compiled
+```
+
+When you enter any test value (for example `DoYouEven_init`), `ltrace` shows in the terminal the internal `strcmp()` calls the program makes, directly revealing the literal strings the input is compared against (`__dso_handle` and `_init`) — letting you reach the same conclusion (that `_init` is the correct value) without manually decompiling the binary.
+
+---
+
+## 9. Process summary
+
+1. Identify the file as a **64-bit, not-stripped ELF**, which allows much more comfortable static analysis (function/symbol names preserved).
+2. Grant execute permission and try an arbitrary password, confirming there is validation logic (`Try again!`).
+3. A quick look with `strings` already reveals hints: the `scanf` format (`DoYouEven%sCTF`) and two candidate “password” strings (`__dso_handle`, `_init`).
+4. Import the binary into **Ghidra** and analyse the `main` function, confirming that:
+   - The input must have the form `DoYouEven<value>CTF` because of the `scanf` used.
+   - `__dso_handle` is a **decoy** comparison that, if matched, produces failure.
+   - `_init` is the comparison that actually determines success (`Correct!`).
+5. Build the correct input: **`DoYouEven_init`**.
+6. As an alternative, `ltrace` reaches the same answer by watching the `strcmp()` calls at runtime, with no decompilation.
+
+## 10. Lessons learned / key concepts
+
+- **“Not stripped” binaries** are much easier to analyse than “stripped” ones, since they keep function and variable names that help enormously to understand the program’s logic.
+- **`scanf` formats with literal text mixed with specifiers** (`"DoYouEven%sCTF"`) are a simple but effective obfuscation technique: anyone who does not understand how `scanf` works with custom formats can waste time trying “obvious” passwords with no success.
+- **Decoy strings** deliberately placed in the binary (like `__dso_handle`, which is also a legitimate internal symbol of C’s own compilation process, making it even more credible as a “false lead”) aim to mislead anyone who only reviews the `strings` output without digging into the real logic.
+- **`strings` is a good first step, but not always enough**: in real reverse-engineering challenges, you have to verify which of the candidate strings is actually the one used in the success comparison, not assume the first that “looks like” a password.
+- **`ltrace`** is a very powerful **dynamic** analysis tool for these challenges: it lets you observe library-function calls (like `strcmp`, `strcpy`, `malloc`, etc.) with their real arguments at runtime, complementing (or even replacing) static analysis with a decompiler.
+- **Ghidra** (a free, open-source tool developed by the NSA) is a de-facto standard in modern reverse engineering, comparable to commercial tools like IDA Pro.
+
+## 11. Tools used
+
+`file`, `chmod`, `strings`, **Ghidra** (static analysis/decompilation), `ltrace` (dynamic analysis, alternative method).
+
+---
+
+_Academic write-up, built from my own notes solving the “Compiled” challenge on TryHackMe, supplemented with public community write-ups to reconstruct the full decompiled source and explain the exact logic of the `scanf` format and the decoy comparisons._

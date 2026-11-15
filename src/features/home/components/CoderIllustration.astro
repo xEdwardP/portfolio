@@ -1,0 +1,327 @@
+---
+import { getLocaleFromPath, useTranslations } from '@/i18n/utils';
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+const t = useTranslations(getLocaleFromPath(Astro.url.pathname));
+---
+
+<div data-coder-animation>
+  <svg
+    viewBox="0 0 560 420"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    focusable="false"
+    class:list={['coder h-auto w-full', className]}
+  >
+    <defs>
+      <clipPath id="coder-code-clip">
+        <rect class="reveal" x="292" y="104" width="186" height="116"></rect>
+      </clipPath>
+    </defs>
+
+    <circle cx="330" cy="200" r="178" class="fill-raised"></circle>
+    <ellipse cx="320" cy="402" rx="230" ry="10" class="fill-strong/50"></ellipse>
+
+    <g class="float float-a">
+      <text x="78" y="124" class="fill-accent font-mono text-[26px] font-semibold"
+        >&lt;/&gt;</text
+      >
+    </g>
+    <g class="float float-b">
+      <text x="150" y="70" class="fill-node font-mono text-[22px] font-semibold"
+        >&#123; &#125;</text
+      >
+    </g>
+    <g class="float float-c">
+      <text x="44" y="232" class="fill-laravel font-mono text-[20px] font-semibold"
+        >=&gt;</text
+      >
+    </g>
+
+    <rect x="214" y="298" width="12" height="102" rx="4" class="fill-strong"></rect>
+    <rect x="512" y="298" width="12" height="102" rx="4" class="fill-strong"></rect>
+    <rect x="200" y="286" width="340" height="12" rx="6" class="fill-strong"></rect>
+
+    <rect
+      x="280"
+      y="72"
+      width="210"
+      height="160"
+      rx="14"
+      class="fill-surface stroke-strong"
+      stroke-width="3"></rect>
+    <rect x="292" y="84" width="186" height="136" rx="8" class="fill-bg"></rect>
+    <circle cx="304" cy="96" r="3.5" class="fill-danger"></circle>
+    <circle cx="316" cy="96" r="3.5" class="fill-warning"></circle>
+    <circle cx="328" cy="96" r="3.5" class="fill-success"></circle>
+
+    <g clip-path="url(#coder-code-clip)">
+      <g class="code">
+        <rect x="304" y="112" width="54" height="7" rx="3.5" class="fill-accent"></rect>
+        <rect x="364" y="112" width="36" height="7" rx="3.5" class="fill-node"></rect>
+        <rect x="316" y="128" width="72" height="7" rx="3.5" class="fill-laravel"></rect>
+        <rect x="394" y="128" width="30" height="7" rx="3.5" class="fill-muted/60"></rect>
+        <rect x="328" y="144" width="48" height="7" rx="3.5" class="fill-flutter"></rect>
+        <rect x="382" y="144" width="64" height="7" rx="3.5" class="fill-muted/60"></rect>
+        <rect x="328" y="160" width="86" height="7" rx="3.5" class="fill-node"></rect>
+        <rect x="316" y="176" width="40" height="7" rx="3.5" class="fill-accent"></rect>
+        <rect x="362" y="176" width="52" height="7" rx="3.5" class="fill-muted/60"></rect>
+        <rect x="304" y="192" width="24" height="7" rx="3.5" class="fill-accent"></rect>
+        <rect x="304" y="208" width="60" height="7" rx="3.5" class="fill-dotnet"></rect>
+        <rect class="cursor fill-accent" x="368" y="206" width="3" height="11"></rect>
+      </g>
+    </g>
+
+    <rect x="373" y="232" width="24" height="44" class="fill-strong"></rect>
+    <rect x="345" y="274" width="80" height="12" rx="6" class="fill-strong"></rect>
+
+    <g class="steam">
+      <path
+        d="M507 250 q-6 -8 0 -16 q6 -8 0 -16"
+        fill="none"
+        stroke-width="3"
+        stroke-linecap="round"
+        class="stroke-muted/70"></path>
+      <path
+        d="M517 250 q-6 -8 0 -16 q6 -8 0 -16"
+        fill="none"
+        stroke-width="3"
+        stroke-linecap="round"
+        class="steam-late stroke-muted/70"></path>
+    </g>
+    <rect x="500" y="258" width="24" height="28" rx="5" class="fill-accent"></rect>
+    <path
+      d="M524 264 h4 a6 6 0 0 1 0 12 h-4"
+      fill="none"
+      stroke-width="4"
+      class="stroke-accent"></path>
+
+    <rect x="148" y="214" width="16" height="118" rx="8" class="fill-strong"></rect>
+    <rect x="150" y="326" width="104" height="12" rx="6" class="fill-strong"></rect>
+    <rect x="196" y="338" width="10" height="50" class="fill-strong"></rect>
+    <rect x="156" y="388" width="90" height="8" rx="4" class="fill-strong"></rect>
+
+    <path d="M196 312 H300 Q312 312 312 324 V328 H196 Z" class="fill-hair"></path>
+    <path d="M296 320 H314 L310 390 H294 Z" class="fill-hair"></path>
+    <rect x="290" y="386" width="36" height="10" rx="5" class="fill-text/80"></rect>
+
+    <g class="hand hand-far">
+      <path
+        d="M236 216 Q262 244 298 270"
+        fill="none"
+        stroke-width="15"
+        stroke-linecap="round"
+        class="stroke-accent-hover"></path>
+      <circle cx="302" cy="273" r="6.5" class="fill-skin"></circle>
+    </g>
+
+    <path
+      d="M180 324 C172 270 182 222 206 204 H238 C258 214 262 262 254 324 Z"
+      class="fill-accent"></path>
+    <rect x="220" y="190" width="14" height="18" class="fill-skin"></rect>
+
+    <g class="head">
+      <circle cx="228" cy="170" r="24" class="fill-skin"></circle>
+      <path
+        d="M204 168 Q202 140 230 140 Q254 142 252 160 Q240 152 222 158 Q212 162 207 180 Z"
+        class="fill-hair"></path>
+      <circle cx="243" cy="170" r="2.4" class="fill-hair"></circle>
+      <path
+        d="M207 160 Q226 128 252 154"
+        fill="none"
+        stroke-width="5"
+        stroke-linecap="round"
+        class="stroke-hair"></path>
+      <rect x="210" y="160" width="12" height="20" rx="6" class="fill-accent-hover"
+      ></rect>
+    </g>
+
+    <rect x="232" y="278" width="80" height="8" rx="3" class="fill-muted/50"></rect>
+
+    <g class="hand hand-near">
+      <path
+        d="M244 214 Q258 240 262 260 L280 272"
+        fill="none"
+        stroke-width="16"
+        stroke-linecap="round"
+        class="stroke-accent"></path>
+      <circle cx="284" cy="275" r="7" class="fill-skin"></circle>
+    </g>
+  </svg>
+  <div class="flex justify-end">
+    <button
+      type="button"
+      hidden
+      data-animation-toggle
+      aria-pressed="false"
+      data-pause-label={t('home.animation.pause')}
+      data-resume-label={t('home.animation.resume')}
+      class="rounded-lg px-3 py-2 text-sm text-muted transition-colors hover:bg-raised hover:text-text"
+    >
+      {t('home.animation.pause')}
+    </button>
+  </div>
+</div>
+
+<script>
+  const root = document.querySelector<HTMLElement>('[data-coder-animation]');
+  const toggle = root?.querySelector<HTMLButtonElement>('[data-animation-toggle]');
+  if (root && toggle) {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => {
+      toggle.hidden = reduced.matches;
+    };
+    toggle.addEventListener('click', () => {
+      const paused = root.classList.toggle('paused');
+      toggle.setAttribute('aria-pressed', String(paused));
+      toggle.textContent =
+        (paused ? toggle.dataset.resumeLabel : toggle.dataset.pauseLabel) ?? '';
+    });
+    reduced.addEventListener('change', sync);
+    sync();
+  }
+</script>
+
+<style>
+  .paused .coder * {
+    animation-play-state: paused !important;
+  }
+  .coder .reveal,
+  .coder .hand,
+  .coder .head,
+  .coder .float,
+  .coder .steam path {
+    transform-box: fill-box;
+  }
+
+  .coder .reveal {
+    transform-origin: top;
+  }
+
+  .coder .head {
+    transform-origin: 50% 100%;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .coder .reveal {
+      animation: reveal 8s infinite;
+    }
+
+    .coder .code {
+      animation: code-fade 8s infinite;
+    }
+
+    .coder .cursor {
+      animation: blink 1s steps(1) infinite;
+    }
+
+    .coder .hand {
+      animation: type 0.34s ease-in-out infinite alternate;
+    }
+
+    .coder .hand-far {
+      animation-delay: 0.17s;
+    }
+
+    .coder .head {
+      animation: nod 4s ease-in-out infinite;
+    }
+
+    .coder .float {
+      animation: float 5s ease-in-out infinite;
+    }
+
+    .coder .float-b {
+      animation-delay: -1.6s;
+    }
+
+    .coder .float-c {
+      animation-delay: -3.2s;
+    }
+
+    .coder .steam path {
+      animation: steam 3s ease-in-out infinite;
+    }
+
+    .coder .steam .steam-late {
+      animation-delay: -1.5s;
+    }
+  }
+
+  @keyframes reveal {
+    0% {
+      transform: scaleY(0);
+      animation-timing-function: steps(7, end);
+    }
+
+    60%,
+    100% {
+      transform: scaleY(1);
+    }
+  }
+
+  @keyframes code-fade {
+    0%,
+    88% {
+      opacity: 1;
+    }
+
+    96%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes type {
+    to {
+      transform: translateY(-3px);
+    }
+  }
+
+  @keyframes nod {
+    0%,
+    100% {
+      transform: rotate(0deg);
+    }
+
+    50% {
+      transform: rotate(3deg);
+    }
+  }
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes steam {
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+
+    40% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+      transform: translateY(-12px);
+    }
+  }
+</style>

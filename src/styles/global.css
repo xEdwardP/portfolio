@@ -34,6 +34,13 @@
   --color-dotnet: var(--brand-dotnet);
   --color-node: var(--brand-node);
   --color-flutter: var(--brand-flutter);
+  --color-laravel-text: var(--brand-laravel-text);
+  --color-dotnet-text: var(--brand-dotnet-text);
+  --color-node-text: var(--brand-node-text);
+  --color-flutter-text: var(--brand-flutter-text);
+
+  --color-skin: var(--illo-skin);
+  --color-hair: var(--illo-hair);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-general-sans), var(--font-inter), ui-sans-serif, sans-serif;
@@ -65,42 +72,12 @@
   }
 }
 
-@utility hero-grid {
-  background-image:
-    linear-gradient(to right, var(--border) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 10%, transparent 75%);
-}
-
-@utility hero-glow {
+@utility accent-glow {
   background-image: radial-gradient(
-    ellipse 55% 45% at 50% -5%,
-    color-mix(in oklab, var(--accent) 16%, transparent),
-    transparent 70%
+    closest-side,
+    color-mix(in oklab, var(--accent) 30%, transparent),
+    transparent
   );
-}
-
-@utility nav-underline {
-  position: relative;
-
-  &::after {
-    content: '';
-    position: absolute;
-    inset-inline: 0.75rem;
-    bottom: 0.25rem;
-    height: 1px;
-    background-color: currentColor;
-    transform: scaleX(0);
-    transform-origin: left;
-    transition: transform 0.25s ease;
-  }
-
-  &:hover::after,
-  &:focus-visible::after,
-  &[aria-current='page']::after {
-    transform: scaleX(1);
-  }
 }
 
 @utility link-underline {
@@ -142,6 +119,7 @@
 
 @layer base {
   html {
+    touch-action: manipulation;
     scroll-behavior: smooth;
     scroll-padding-top: 5rem;
   }

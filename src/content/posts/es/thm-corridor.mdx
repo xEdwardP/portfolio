@@ -1,0 +1,209 @@
+---
+title: 'Corridor'
+description: 'Un IDOR en identificadores predecibles: hashes MD5 en la URL que, al enumerarlos, revelan una puerta oculta y la flag de la sala.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Dificultad:** Easy (categoría «5 Minute Hacks») **Categoría:** IDOR (Insecure Direct Object Reference), cracking de hashes MD5, enumeración de identificadores predecibles **Sala:** [https://tryhackme.com/room/corridor](https://tryhackme.com/room/corridor)
+
+## Descripción de la sala
+
+> Te has encontrado en un pasillo extraño. ¿Puedes encontrar el camino de vuelta a donde viniste?
+
+Reto web muy corto (categoría «5 minute hacks» de TryHackMe) que sirve como introducción práctica a las vulnerabilidades **IDOR (Insecure Direct Object Reference)**: la aplicación web usa hashes MD5 de números pequeños como si fueran identificadores «seguros» para controlar a qué «puertas»/salas puede acceder el usuario, cuando en realidad son triviales de recrear.
+
+> **Nota sobre placeholders:** se usa `{IP}` para representar la IP asignada por TryHackMe a esta máquina (cambia en cada despliegue); en algunas variantes de la sala el sitio también responde en el dominio `corridor.thm` tras añadirlo a `/etc/hosts`. Los hashes MD5 mostrados en estos apuntes corresponden a los números del 1 al 12/13 y son siempre los mismos (MD5 es determinista: el mismo texto de entrada siempre produce el mismo hash), por lo que no varían entre despliegues.
+
+---
+
+## 1. Reconocimiento inicial
+
+Al visitar `http://{IP}/` (puerto 80), se muestra una imagen de un pasillo con varias **puertas**, cada una enlazando a una URL distinta. Al hacer clic en cualquiera de ellas, la URL cambia a algo como:
+
+```
+http://{IP}/c4ca4238a0b923820dcc509a6f75849b
+```
+
+Cada «puerta» lleva a una sala vacía, pero el **identificador en la URL** llama la atención: una cadena hexadecimal de 32 caracteres — la longitud característica de un **hash MD5**.
+
+### 1.1 Revisar el código fuente de la página
+
+```
+Ctrl + U (ver código fuente en el navegador)
+```
+
+O de forma equivalente por línea de comandos:
+
+```bash
+curl -s http://{IP}/ | grep -oE '[a-f0-9]{32}'
+```
+
+En el HTML de la página principal aparecen etiquetas `<area>` (mapas de imagen clicables) que contienen, cada una, uno de estos valores hash en su atributo `href`. Estos son exactamente los hashes que ya trajiste en estos apuntes:
+
+```
+c4ca4238a0b923820dcc509a6f75849b
+c81e728d9d4c2f636f067f89cc14862c
+eccbc87e4b5ce2fe28308fd9f2a7baf3
+a87ff679a2f3e71d9181a67b7542122c
+e4da3b7fbbce2345d7772b0674a318d5
+1679091c5a880faf6fb5e6087eb1b2dc
+8f14e45fceea167a5a36dedd4bea2543
+45c48cce2e2d7fbdea1afc51c7c6ad26
+d3d9446802a44259755d38e6d163e820
+6512bd43d9caa6e02c990b0a82652dca
+c20ad4d76fe97759aa27a0c99bff6710
+c51ce410c124a10e0db5e4b97fc2af39
+```
+
+---
+
+## 2. Identificando el patrón (cracking de los hashes)
+
+Con 12 hashes distintos y ninguna otra información visible, el siguiente paso lógico es intentar **crackearlos** para entender qué representan. Se puede usar un servicio online como [CrackStation](https://crackstation.net/) o [CyberChef](https://gchq.github.io/CyberChef/) (receta «MD5»), o hacerlo localmente comparando contra números pequeños, ya que MD5 es una función de hash **rápida y sin sal** en este contexto — perfecta para fuerza bruta trivial sobre un rango numérico reducido:
+
+```bash
+for i in $(seq 1 20); do
+  echo -n "$i" | md5sum | awk -v n="$i" '{print n": "$1}'
+done
+```
+
+- `echo -n`: importante usar `-n` para **no** incluir el carácter de salto de línea al final del texto antes de hashearlo — si se incluye el salto de línea, el hash resultante sería distinto (por ejemplo, `echo '1' | md5sum`, sin `-n`, da un resultado diferente a `echo -n '1' | md5sum`). Este es un error común al reproducir hashes MD5 desde la terminal.
+
+Al comparar la salida contra la lista de hashes de la página, se confirma que **cada hash corresponde al MD5 del número entero correspondiente**, del **1 al 12** (o hasta 13, según la versión desplegada de la sala):
+
+| Hash                               | Número |
+| ---------------------------------- | ------ |
+| `c4ca4238a0b923820dcc509a6f75849b` | 1      |
+| `c81e728d9d4c2f636f067f89cc14862c` | 2      |
+| `eccbc87e4b5ce2fe28308fd9f2a7baf3` | 3      |
+| `a87ff679a2f3e71d9181a67b7542122c` | 4      |
+| `e4da3b7fbbce2345d7772b0674a318d5` | 5      |
+| `1679091c5a880faf6fb5e6087eb1b2dc` | 6      |
+| `8f14e45fceea167a5a36dedd4bea2543` | 7      |
+| `45c48cce2e2d7fbdea1afc51c7c6ad26` | 8      |
+| `d3d9446802a44259755d38e6d163e820` | 9      |
+| `6512bd43d9caa6e02c990b0a82652dca` | 10     |
+| `c20ad4d76fe97759aa27a0c99bff6710` | 11     |
+| `c51ce410c124a10e0db5e4b97fc2af39` | 12     |
+
+Cada una de estas URLs, al visitarse, muestra una «sala» vacía — es decir, las 12 puertas visibles no contienen nada de interés.
+
+---
+
+## 3. Identificando la vulnerabilidad (IDOR)
+
+El hecho de que el «identificador» de cada sala sea, en realidad, el **hash MD5 de un número secuencial y predecible** es el núcleo de la vulnerabilidad **IDOR**: la aplicación asume que, por estar «ofuscado» en forma de hash, el usuario no podrá adivinar ni construir identificadores de salas a las que no debería tener acceso directo (por ejemplo, salas anteriores a la 1, o posteriores a la última visible). Pero como MD5:
+
+1. Es una función **determinista** (mismo input → siempre mismo output), y
+2. No involucra ningún secreto (no hay «sal» ni clave añadida a los números antes de hashearlos),
+
+…cualquier atacante puede **regenerar** exactamente los mismos hashes para cualquier número que desee probar, sin necesidad de crackear nada por fuerza bruta contra un servidor: MD5 no es cifrado, es una operación matemática pública y repetible.
+
+Esto es un ejemplo clásico de **«seguridad por oscuridad»**: ocultar un identificador secuencial detrás de un hash no lo hace impredecible si el espacio de valores de entrada (números pequeños) es trivial de recorrer.
+
+---
+
+## 4. Explotación: buscando la puerta oculta
+
+Como los identificadores visibles van del 1 al 12/13, la pregunta natural es: **¿existe alguna sala con un número fuera de ese rango, a la que no se enlaza desde ningún sitio visible, pero que el servidor sí sirva si se solicita directamente?**
+
+### 4.1 Probar hacia arriba (números mayores al último visible)
+
+Varias resoluciones públicas de la sala prueban primero continuar la secuencia hacia arriba (14, 15, 16…), generando y visitando esos hashes, sin éxito — el servidor no tiene contenido para esos números.
+
+### 4.2 Probar el valor «antes del principio»: 0
+
+La intuición (y la que resulta ser correcta) es que la puerta «escondida» no está después de la última puerta visible, sino **antes de la primera** — es decir, el número **`0`**, el cual nunca se enlaza desde ningún elemento de la interfaz.
+
+```bash
+echo -n "0" | md5sum
+# cfcd208495d565ef66e7dff9f98764da
+```
+
+Se visita esa URL directamente:
+
+```bash
+curl -s http://{IP}/cfcd208495d565ef66e7dff9f98764da
+```
+
+O simplemente pegando la URL completa en el navegador:
+
+```
+http://{IP}/cfcd208495d565ef66e7dff9f98764da
+```
+
+Esta sala, a diferencia de las 12 anteriores, **sí contiene contenido**: la flag de la sala.
+
+---
+
+## 5. Flag
+
+<Flag value="flag{2477ef02448ad9156661ac40a6b8862e}" />
+
+---
+
+## 6. Métodos alternativos (documentados por la comunidad)
+
+Aunque el camino manual descrito arriba es el más directo para esta sala en particular, conviene conocer enfoques más sistemáticos, útiles cuando el rango de valores posibles no es tan evidente:
+
+### 6.1 Automatización con Burp Suite Intruder
+
+1. Interceptar una petición a cualquiera de las URLs con hash conocido.
+2. Marcar la parte del hash como posición de payload (`§...§`).
+3. Configurar el tipo de payload como una lista numérica (por ejemplo, del `-10` al `20`).
+4. Añadir una **regla de procesamiento de payload** (_Payload Processing_) del tipo `Hash → MD5`, de modo que Burp convierta automáticamente cada número candidato a su hash MD5 antes de enviarlo.
+5. Lanzar el ataque y comparar la longitud de las respuestas (`Length`): la mayoría de respuestas para números «vacíos» tendrán una longitud similar entre sí, mientras que la respuesta con la flag destacará por tener un tamaño distinto.
+
+### 6.2 Script en Python (fuerza bruta programática)
+
+```python
+import requests
+import hashlib
+import re
+
+url = "http://{IP}/"
+resp = requests.get(url)
+existing_hashes = set(re.findall(r'[a-f0-9]{32}', resp.text))
+
+for i in range(-10, 100):
+    h = hashlib.md5(str(i).encode()).hexdigest()
+    if h in existing_hashes:
+        continue  # Ya sabemos que esta sala está vacía
+    check = requests.get(url + h)
+    if check.status_code == 200:
+        print(f"[+] Número {i} -> hash {h} -> posible sala oculta")
+```
+
+- `hashlib.md5(str(i).encode()).hexdigest()`: genera el hash MD5 de cada número candidato, igual que hicimos manualmente con `md5sum`.
+- El script evita reprobar hashes que ya sabemos que están vacíos (los 12 visibles en la página principal), optimizando el recorrido.
+- Al encontrar una sala con código de respuesta `200` que no estaba en la lista original, se reporta como candidata — en este caso, correspondería al número `0`.
+
+---
+
+## 7. Resumen de la cadena de ataque
+
+1. Se visita la web y se identifican **12 «puertas»**, cada una enlazando a una URL con un identificador de 32 caracteres hexadecimales (formato MD5).
+2. Se **crackean/regeneran** esos hashes localmente contra números pequeños (`echo -n "N" | md5sum`), confirmando que representan los números del 1 al 12.
+3. Se identifica la vulnerabilidad como un **IDOR**: el «identificador ofuscado» es en realidad trivial de recrear porque no depende de ningún secreto.
+4. Se prueba generar el hash de un número **fuera del rango visible** — específicamente `0`, el valor «antes del inicio» de la secuencia.
+5. Se visita esa URL generada manualmente y se encuentra una sala con contenido real: la **flag**.
+
+## 8. Lecciones aprendidas / conceptos clave
+
+- **IDOR (Insecure Direct Object Reference)**: ocurre cuando una aplicación expone referencias directas a recursos internos (archivos, registros de base de datos, salas, etc.) sin validar adecuadamente si el usuario actual **debería** tener acceso a ese recurso específico — basta con poder adivinar o construir el identificador correcto.
+- **Ofuscación ≠ Seguridad**: convertir un número secuencial predecible en un hash MD5 no añade seguridad real si el espacio de valores de entrada es pequeño y no hay ningún secreto (clave, salt) involucrado en el proceso. El atacante puede regenerar los mismos hashes sin «romper» nada criptográficamente.
+- **`echo -n` vs `echo`**: al generar hashes manualmente desde la terminal, un salto de línea de más (`echo` sin `-n`) altera completamente el hash resultante — un detalle técnico pequeño pero que genera mucha confusión si no se tiene en cuenta.
+- **Pensar «fuera del rango visible»**: en retos de enumeración de identificadores, no basta con replicar lo que ya es visible; a menudo el objetivo real está deliberadamente excluido de cualquier referencia en la interfaz (en este caso, el valor `0`, un límite natural que muchos programadores olvidan considerar al validar rangos).
+- **Automatización con Burp Suite Intruder** (incluyendo reglas de _Payload Processing_ como `Hash → MD5`) es una habilidad transferible a cualquier escenario donde los identificadores estén hasheados pero el espacio de valores de entrada sea enumerable.
+
+## 9. Herramientas utilizadas
+
+Navegador (inspección de código fuente), `curl`, `md5sum` / CyberChef / CrackStation (cracking y generación de hashes MD5), opcionalmente **Burp Suite** (Intruder) o un script en **Python** para automatizar la búsqueda.
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución del reto «Corridor» en TryHackMe, complementada con writeups públicas de la comunidad para reconstruir el contexto completo de la vulnerabilidad IDOR y documentar métodos alternativos de automatización._

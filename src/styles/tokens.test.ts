@@ -29,6 +29,12 @@ const light = tokensIn(':root');
 const dark = tokensIn('\\.dark');
 
 const textPairs: [string, string][] = [
+  ...['laravel', 'dotnet', 'node', 'flutter'].flatMap((brand) =>
+    ['--bg', '--surface', '--surface-raised'].map((bg): [string, string] => [
+      `--brand-${brand}-text`,
+      bg,
+    ])
+  ),
   ['--text', '--bg'],
   ['--text', '--surface'],
   ['--text-muted', '--bg'],

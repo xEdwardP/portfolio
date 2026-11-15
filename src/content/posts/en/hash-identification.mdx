@@ -1,0 +1,199 @@
+---
+title: 'Hash identification and cracking'
+description: 'How to recognise a hash type by its shape and pick the right cracking strategy with Hashcat and John the Ripper.'
+publishDate: 2026-08-24
+tags:
+  - cybersecurity
+  - cryptography
+  - tooling
+---
+
+A hash is the result of a one-way function that transforms data of any size into a fixed-length string. It is not encryption (there is no mathematical inverse operation); “cracking” a hash in practice means **trying candidates** (brute force or dictionary) until finding one whose hash matches.
+
+---
+
+## 1. Identification by length and format
+
+| Length (hex) | Characters | Likely type          |
+| ------------ | ---------- | -------------------- |
+| 32           | hex        | MD5 / NTLM / MD4     |
+| 40           | hex        | SHA1 / MySQL5        |
+| 64           | hex        | SHA256               |
+| 128          | hex        | SHA512               |
+| 16           | hex        | MySQL (old, pre-4.1) |
+
+### Characteristic prefixes (`$id$...` format)
+
+| Prefix                    | Algorithm           |
+| ------------------------- | ------------------- |
+| `$1$`                     | MD5 crypt (Unix)    |
+| `$2a$`, `$2b$`, `$2y$`    | Bcrypt              |
+| `$5$`                     | SHA256 crypt (Unix) |
+| `$6$`                     | SHA512 crypt (Unix) |
+| `$argon2i$`, `$argon2id$` | Argon2              |
+| `$y$`                     | yescrypt            |
+
+### Other useful clues
+
+- Ends in `=` or `==` → possible base64 encoding (not necessarily a hash; could be NTLM in base64, or encoded text that is not hashed)
+- Contains `:` → probably `user:hash` or `hash:salt`
+- Comes from `/etc/shadow` → almost certainly `$6$` (SHA512crypt) on modern distros
+- Comes from an old MySQL database → SHA1 with double hash (`*hash`)
+- Comes from Windows (SAM/NTDS) → NTLM (32 hex, same format as MD5, must be distinguished by context)
+
+---
+
+## 2. Identification tools
+
+### name-that-hash (recommended)
+
+Actively maintained, gives the hashcat mode and john format directly.
+
+```bash
+pip3 install name-that-hash --break-system-packages
+```
+
+Single use:
+
+```bash
+nth --text ''
+```
+
+Use with a file (several hashes, one per line):
+
+```bash
+nth --file hashes.txt
+```
+
+Cleaner output for automation:
+
+```bash
+nth --file hashes.txt --greppable
+```
+
+### hashid
+
+Lighter, based on regular expressions.
+
+```bash
+hashid ''
+```
+
+### hash-identifier
+
+An interactive tool, older and without active maintenance (use only if the previous ones are unavailable).
+
+```bash
+hash-identifier
+# paste the hash when prompted
+```
+
+### hashcat itself
+
+```bash
+hashcat --identify hash.txt
+```
+
+> No identifier is 100% infallible: several algorithms share length/format (e.g. MD5 and NTLM). If you know the hash’s origin (Linux shadow, database, Windows), use it to confirm among the candidates.
+
+---
+
+## 3. Cracking
+
+### General structure with hashcat
+
+```bash
+hashcat -m <mode> -a <attack_type> <hash_file> <wordlist> [optional rules]
+```
+
+- `-m` → mode/algorithm (hashcat-specific number)
+- `-a 0` → dictionary attack (the most common to start)
+- `-a 3` → brute-force attack with a mask
+
+### Most common hashcat modes
+
+| Algorithm            | Mode (`-m`) | Example command                             |
+| -------------------- | ----------- | ------------------------------------------- |
+| MD5                  | 0           | `hashcat -m 0 -a 0 hash.txt rockyou.txt`    |
+| MD4                  | 900         | `hashcat -m 900 -a 0 hash.txt rockyou.txt`  |
+| SHA1                 | 100         | `hashcat -m 100 -a 0 hash.txt rockyou.txt`  |
+| SHA256               | 1400        | `hashcat -m 1400 -a 0 hash.txt rockyou.txt` |
+| SHA512               | 1700        | `hashcat -m 1700 -a 0 hash.txt rockyou.txt` |
+| NTLM                 | 1000        | `hashcat -m 1000 -a 0 hash.txt rockyou.txt` |
+| Bcrypt               | 3200        | `hashcat -m 3200 -a 0 hash.txt rockyou.txt` |
+| MD5 crypt (`$1$`)    | 500         | `hashcat -m 500 -a 0 hash.txt rockyou.txt`  |
+| SHA256 crypt (`$5$`) | 7400        | `hashcat -m 7400 -a 0 hash.txt rockyou.txt` |
+| SHA512 crypt (`$6$`) | 1800        | `hashcat -m 1800 -a 0 hash.txt rockyou.txt` |
+| MySQL5               | 300         | `hashcat -m 300 -a 0 hash.txt rockyou.txt`  |
+
+Full, up-to-date list: [https://hashcat.net/wiki/doku.php?id=example_hashes](https://hashcat.net/wiki/doku.php?id=example_hashes)
+
+### With John the Ripper (a GPU-less alternative)
+
+```bash
+john --format=<format> --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+john --show hash.txt
+```
+
+Common formats: `raw-md5`, `raw-sha1`, `raw-sha256`, `nt` (NTLM), `bcrypt`, `md5crypt`, `sha512crypt`
+
+For `/etc/passwd` + `/etc/shadow` type hashes:
+
+```bash
+unshadow passwd.txt shadow.txt > combined.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt combined.txt
+```
+
+### If the simple dictionary finds nothing: mutation rules
+
+They apply automatic variations (uppercase, trailing numbers, symbols, leetspeak) to each dictionary word.
+
+```bash
+hashcat -m 0 -a 0 hash.txt rockyou.txt -r /usr/share/hashcat/rules/best64.rule
+```
+
+Other useful rules: `dive.rule`, `d3ad0ne.rule` (more aggressive, take longer).
+
+### Mask attack (targeted brute force)
+
+Useful when you know the password pattern (e.g. 8 characters, starts with uppercase, ends in 2 digits):
+
+```bash
+hashcat -m 0 -a 3 hash.txt ?u?l?l?l?l?l?d?d
+```
+
+- `?u` = uppercase, `?l` = lowercase, `?d` = digit, `?s` = symbol
+
+---
+
+## 4. Quick manual verification (no tools)
+
+To confirm a password candidate matches the hash:
+
+```bash
+echo -n "candidate" | md5sum
+echo -n "candidate" | sha1sum
+echo -n "candidate" | sha256sum
+```
+
+> The `-n` flag is important: without it, `echo` adds a newline that changes the resulting hash.
+
+---
+
+## 5. Recommended step-by-step flow
+
+1. Identify the hash (`nth`, `hashid`) → confirm format and length
+2. Check the corresponding hashcat mode (table above or the official wiki)
+3. Simple dictionary attack with rockyou.txt
+4. If it fails, apply rules (`best64.rule`)
+5. If it still does not fall and you have context (machine name, theme, user), build a custom wordlist with `cewl` from related content
+6. As a last resort, a mask attack if you know the approximate pattern
+
+---
+
+## 6. Notes and good practices
+
+- MD5 and SHA1 are fast to brute-force (do not use in production)
+- Bcrypt/SHA512crypt/Argon2 are deliberately slow — they take much longer even with a GPU, which is their design purpose
+- Always try `rockyou.txt` first before larger/more exotic wordlists
+- Saving the hash in a `.txt` file (not passing it inline) avoids escaping errors with special characters (`$`, `!`, etc.) in the terminal

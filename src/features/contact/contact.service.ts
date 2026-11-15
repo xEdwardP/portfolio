@@ -5,12 +5,12 @@ export interface ContactMessage {
   message: string;
 }
 
-export type ContactFailure = 'misconfigured' | 'rejected' | 'network';
+export type ContactFailure = 'misconfigured' | 'rejected' | 'network' | 'captcha';
 
 export type ContactResult = { ok: true } | { ok: false; reason: ContactFailure };
 
 export interface ContactService {
-  send(message: ContactMessage): Promise<ContactResult>;
+  send(message: ContactMessage, captchaToken: string): Promise<ContactResult>;
 
   readonly formAction: string;
 

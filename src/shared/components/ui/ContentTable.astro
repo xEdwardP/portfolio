@@ -1,0 +1,16 @@
+---
+import type { HTMLAttributes } from 'astro/types';
+import { getLocaleFromPath, useTranslations } from '@/i18n/utils';
+
+type Props = HTMLAttributes<'table'>;
+const t = useTranslations(getLocaleFromPath(Astro.url.pathname));
+---
+
+<div
+  class="max-w-full overflow-x-auto overscroll-x-contain"
+  role="region"
+  aria-label={t('content.table')}
+  tabindex="0"
+>
+  <table {...Astro.props}><slot /></table>
+</div>

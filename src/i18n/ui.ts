@@ -1,7 +1,7 @@
 const es = {
   'site.title': 'Portafolio Personal Edward Pineda',
   'site.description':
-    'Portafolio de Edward Pineda. Desarrollo full stack y móvil con Laravel, ASP.NET Core, TypeScript y Flutter.',
+    'Portafolio de Edward Pineda, desarrollador full stack y móvil en Honduras. Aplicaciones web, de escritorio y móviles con Laravel, .NET, Node.js y Flutter.',
 
   'nav.home': 'Inicio',
   'nav.projects': 'Proyectos',
@@ -21,17 +21,23 @@ const es = {
 
   'a11y.skip': 'Saltar al contenido principal',
 
-  'home.eyebrow': 'Fullstack y Mobile',
-  'home.title': 'Construyo software en cuatro ecosistemas',
+  'home.title': 'Entrego soluciones, no solo código',
+  'home.animation.pause': 'Pausar animación',
+  'home.animation.resume': 'Reanudar animación',
+  'content.table': 'Tabla con desplazamiento horizontal',
   'home.lead':
-    'Laravel, ASP.NET Core, TypeScript y Flutter. Arquitecturas modulares, patrones explícitos y productos que llegan a producción.',
+    'Soy Edward, desarrollador full stack. Me comprometo con cada proyecto hasta dejarlo funcionando: primero entiendo el problema, luego escribo código limpio y ordenado con Laravel, .NET, Node.js o Flutter.',
   'home.cta.projects': 'Ver proyectos',
   'home.cta.contact': 'Contactar',
   'home.featured': 'Proyectos destacados',
+  'home.featuredLead':
+    'Cuatro proyectos completos, de la base de datos a la interfaz: web, escritorio y móvil.',
+  'home.share': 'en el portafolio, repartidos por stack',
+  'home.projectsOne': 'proyecto',
+  'home.projectsOther': 'proyectos',
   'home.stack': 'Con qué trabajo',
   'home.skills': 'Lo que sé hacer',
-  'home.skillsLead':
-    'Cuatro ecosistemas, no cuatro tutoriales. Cada uno con proyectos detrás.',
+  'home.skillsLead': 'Cada stack tiene proyectos reales detrás, no tutoriales.',
   'home.allSkills': 'Ver todo el detalle',
   'home.closing': 'Hablemos',
   'home.closingBody':
@@ -48,8 +54,8 @@ const es = {
   'soon.body': 'Esta sección llega en un sprint próximo.',
 
   'projects.lead':
-    'Trabajo en cuatro ecosistemas. Filtra por el que te interese y mira cómo resuelvo en cada uno.',
-  'projects.filter': 'Filtrar por ecosistema',
+    'Filtra por el stack que te interese y mira cómo resuelvo problemas en cada uno.',
+  'projects.filter': 'Filtrar por stack',
   'projects.all': 'Todos',
   'projects.empty': 'No hay proyectos con ese filtro.',
   'projects.caseStudy': 'Caso de estudio',
@@ -64,6 +70,7 @@ const es = {
   'project.highlights': 'Lo destacable',
   'project.live': 'Ver en vivo',
   'project.status': 'Estado',
+  'project.ecosystem': 'Stack',
   'project.status.active': 'En desarrollo',
   'project.status.completed': 'Terminado',
   'project.status.archived': 'Archivado',
@@ -84,7 +91,8 @@ const es = {
   'category.api': 'API',
   'category.desktop': 'Escritorio',
 
-  'blog.lead': 'Notas sobre decisiones técnicas, escritas desde proyectos reales.',
+  'blog.lead':
+    'Notas sobre decisiones técnicas de proyectos reales y writeups de ciberseguridad.',
   'blog.readingTime': 'min de lectura',
   'blog.readMore': 'Leer',
   'blog.back': 'Volver al blog',
@@ -96,35 +104,51 @@ const es = {
   'blog.updated': 'Actualizado el',
   'blog.rss': 'Suscribirse por RSS',
   'blog.newer': 'Más recientes',
+  'blog.pagination': 'Paginación del blog',
   'blog.older': 'Más antiguos',
+  'blog.search': 'Buscar en el blog',
+  'blog.searchPlaceholder': 'Título, tema o herramienta, por ejemplo nmap…',
+  'blog.searchError':
+    'No se pudo cargar el buscador. Revisa tu conexión y vuelve a escribir.',
+  'blog.searchClear': 'Borrar búsqueda',
+  'blog.resultsOne': 'resultado',
+  'blog.resultsOther': 'resultados',
+  'blog.noResults':
+    'Ninguna entrada coincide. Prueba con otra palabra, como «SQL» o «sudo».',
+  'blog.flagShow': 'Mostrar flag',
+  'blog.flagHide': 'Ocultar flag',
 
   'about.eyebrow': 'Sobre mí',
   'about.lead':
     'Ingeniero en Ciencias de la Computación y desarrollador full stack en Honduras.',
   'about.story':
-    'Me muevo entre backend, frontend, móvil y base de datos sin depender de un solo ecosistema: trabajo con TypeScript, .NET, Laravel, Node.js y Flutter, y elijo la herramienta según el problema, no según lo que ya domino.',
+    'Me muevo entre backend, frontend, móvil y base de datos sin depender de una sola tecnología: trabajo con Laravel, .NET, Node.js y Flutter, y elijo la herramienta según el problema, no según lo que ya domino.',
   'about.approach': 'Cómo trabajo',
   'about.approachBody':
     'Documento la arquitectura, el modelo de datos y las limitaciones conocidas de lo que construyo, porque un sistema que nadie más puede retomar no está terminado. Cuido la claridad al comunicarme y la experiencia de quien usa lo que hago. Base complementaria en redes y ciberseguridad.',
   'about.photoAlt': 'Retrato de Edward Pineda',
   'about.cv': 'Descargar CV',
   'about.cvNote': 'PDF · español',
-  'about.skills': 'Tecnologías por ecosistema',
+  'about.skills': 'Tecnologías por stack',
   'about.skillsLead':
-    'Cada tecnología de esta lista aparece en al menos un proyecto publicado.',
+    'Tecnologías que uso en proyectos web, de escritorio y móviles, con versiones de referencia de mis repositorios.',
   'about.toolbox': 'Herramientas y fundamentos',
   'about.toolboxLead':
-    'Lo que uso a diario, más allá del ecosistema en el que esté trabajando.',
+    'Lenguajes, datos, integraciones y herramientas que complementan mis proyectos.',
   'skills.languages': 'Lenguajes',
   'skills.interface': 'Interfaz y estilos',
   'skills.data': 'Bases de datos',
   'skills.tooling': 'Herramientas',
   'skills.systems': 'Redes y sistemas',
+  'skills.webStack': 'Frontend web',
+  'skills.androidStack': 'Android nativo',
+  'skills.integrations': 'Servicios e integraciones',
+  'skills.testing': 'Pruebas y calidad',
   'about.practices': 'Prácticas',
   'about.soft': 'Habilidades blandas',
   'about.spoken': 'Idiomas',
-  'about.projectsCount': 'proyectos',
   'about.education': 'Formación',
+  'about.experience': 'Experiencia laboral',
   'about.ctaTitle': '¿Trabajamos juntos?',
   'about.ctaBody': 'Estoy abierto a oportunidades y colaboraciones.',
 
@@ -148,16 +172,24 @@ const es = {
   'contact.sending': 'Enviando…',
   'contact.success': 'Mensaje enviado. Gracias por escribir.',
   'contact.honeypot': 'No rellenes este campo',
+  'contact.captcha.label': 'Verificación antispam',
+  'contact.captcha.loading': 'Cargando la verificación antispam…',
+  'contact.fail.captcha': 'Completa la verificación antispam antes de enviar.',
+  'contact.captcha.expired': 'La verificación caducó. Complétala de nuevo para enviar.',
+  'contact.captcha.themeChanged':
+    'El cambio de tema reinició la verificación. Complétala de nuevo para enviar.',
+  'contact.captcha.unavailable':
+    'No se pudo cargar la verificación. Recarga la página para reintentar o escríbeme por correo.',
   'contact.alt': 'Otras vías',
   'contact.altBody': 'Si prefieres escribirme directamente:',
   'contact.noscript':
-    'Sin JavaScript el formulario se envía igual, pero te llevará a la página del proveedor. También tienes mi correo aquí abajo.',
+    'El formulario necesita JavaScript para la verificación antispam. Puedes escribirme al correo que aparece abajo.',
 } as const;
 
 const en = {
   'site.title': 'Edward Pineda Personal Portfolio',
   'site.description':
-    'Portfolio of Edward Pineda. Full stack and mobile development with Laravel, ASP.NET Core, TypeScript and Flutter.',
+    'Portfolio of Edward Pineda, a full stack and mobile developer in Honduras. Web, desktop and mobile applications with Laravel, .NET, Node.js and Flutter.',
 
   'nav.home': 'Home',
   'nav.projects': 'Projects',
@@ -177,17 +209,23 @@ const en = {
 
   'a11y.skip': 'Skip to main content',
 
-  'home.eyebrow': 'Fullstack & Mobile',
-  'home.title': 'I build software across four ecosystems',
+  'home.title': 'I deliver solutions, not just code',
+  'home.animation.pause': 'Pause animation',
+  'home.animation.resume': 'Resume animation',
+  'content.table': 'Horizontally scrollable table',
   'home.lead':
-    'Laravel, ASP.NET Core, TypeScript and Flutter. Modular architectures, explicit patterns and products that ship.',
+    'I’m Edward, a full stack developer. I commit to every project until it works: I understand the problem first, then write clean, organised code with Laravel, .NET, Node.js or Flutter.',
   'home.cta.projects': 'View projects',
   'home.cta.contact': 'Get in touch',
   'home.featured': 'Featured projects',
+  'home.featuredLead':
+    'Four complete builds, from database to interface: web, desktop and mobile.',
+  'home.share': 'in the portfolio, split by stack',
+  'home.projectsOne': 'project',
+  'home.projectsOther': 'projects',
   'home.stack': 'What I work with',
   'home.skills': 'What I can build',
-  'home.skillsLead':
-    'Four ecosystems, not four tutorials. Each one has projects behind it.',
+  'home.skillsLead': 'Every stack has real projects behind it, not tutorials.',
   'home.allSkills': 'See the full breakdown',
   'home.closing': 'Let us talk',
   'home.closingBody':
@@ -204,8 +242,8 @@ const en = {
   'soon.body': 'This section ships in an upcoming sprint.',
 
   'projects.lead':
-    'I work across four ecosystems. Filter by the one you care about and see how I solve things in each.',
-  'projects.filter': 'Filter by ecosystem',
+    'Filter by the stack you care about and see how I solve problems in each one.',
+  'projects.filter': 'Filter by stack',
   'projects.all': 'All',
   'projects.empty': 'No projects match that filter.',
   'projects.caseStudy': 'Case study',
@@ -220,6 +258,7 @@ const en = {
   'project.highlights': 'Highlights',
   'project.live': 'View live',
   'project.status': 'Status',
+  'project.ecosystem': 'Stack',
   'project.status.active': 'In progress',
   'project.status.completed': 'Completed',
   'project.status.archived': 'Archived',
@@ -241,7 +280,8 @@ const en = {
   'category.api': 'API',
   'category.desktop': 'Desktop',
 
-  'blog.lead': 'Notes on technical decisions, written from real projects.',
+  'blog.lead':
+    'Notes on technical decisions from real projects, plus cybersecurity writeups.',
   'blog.readingTime': 'min read',
   'blog.readMore': 'Read',
   'blog.back': 'Back to the blog',
@@ -253,34 +293,49 @@ const en = {
   'blog.updated': 'Updated on',
   'blog.rss': 'Subscribe via RSS',
   'blog.newer': 'Newer',
+  'blog.pagination': 'Blog pagination',
   'blog.older': 'Older',
+  'blog.search': 'Search the blog',
+  'blog.searchPlaceholder': 'Title, topic or tool, for example nmap…',
+  'blog.searchError': 'Search could not load. Check your connection and type again.',
+  'blog.searchClear': 'Clear search',
+  'blog.resultsOne': 'result',
+  'blog.resultsOther': 'results',
+  'blog.noResults': 'No posts match. Try another word, such as “SQL” or “sudo”.',
+  'blog.flagShow': 'Show flag',
+  'blog.flagHide': 'Hide flag',
 
   'about.eyebrow': 'About me',
   'about.lead':
     'Full stack developer with a background in Computer Science, based in Honduras.',
   'about.story':
-    'I work across backend, frontend, mobile and database without relying on a single ecosystem: TypeScript, .NET, Laravel, Node.js and Flutter, choosing the tool the problem calls for rather than the one I already know.',
+    'I work across backend, frontend, mobile and database without relying on a single technology: Laravel, .NET, Node.js and Flutter, choosing the tool the problem calls for rather than the one I already know.',
   'about.approach': 'How I work',
   'about.approachBody':
     'I document the architecture, data model and known limitations of what I build, because a system nobody else can pick up is not finished. I care about communicating clearly and about the experience of whoever uses what I make. Additional background in networking and cybersecurity.',
   'about.photoAlt': 'Portrait of Edward Pineda',
   'about.cv': 'Download CV',
   'about.cvNote': 'PDF · English',
-  'about.skills': 'Technologies by ecosystem',
+  'about.skills': 'Technologies by stack',
   'about.skillsLead':
-    'Every technology listed here appears in at least one published project.',
+    'Technologies I use in web, desktop and mobile projects, with reference versions from my repositories.',
   'about.toolbox': 'Tools and fundamentals',
-  'about.toolboxLead': 'What I use daily, whichever ecosystem I happen to be working in.',
+  'about.toolboxLead':
+    'Languages, data, integrations and tools that complement my projects.',
   'skills.languages': 'Languages',
   'skills.interface': 'Interface and styling',
   'skills.data': 'Databases',
   'skills.tooling': 'Tooling',
   'skills.systems': 'Networks and systems',
+  'skills.webStack': 'Web frontend',
+  'skills.androidStack': 'Native Android',
+  'skills.integrations': 'Services and integrations',
+  'skills.testing': 'Testing and quality',
   'about.practices': 'Practices',
   'about.soft': 'Soft skills',
   'about.spoken': 'Spoken languages',
-  'about.projectsCount': 'projects',
   'about.education': 'Education',
+  'about.experience': 'Work experience',
   'about.ctaTitle': 'Shall we work together?',
   'about.ctaBody': 'I am open to opportunities and collaborations.',
 
@@ -302,10 +357,18 @@ const en = {
   'contact.sending': 'Sending…',
   'contact.success': 'Message sent. Thanks for reaching out.',
   'contact.honeypot': 'Do not fill in this field',
+  'contact.captcha.label': 'Spam protection',
+  'contact.captcha.loading': 'Loading spam verification…',
+  'contact.fail.captcha': 'Complete the spam verification before sending.',
+  'contact.captcha.expired': 'Verification expired. Please complete it again to send.',
+  'contact.captcha.themeChanged':
+    'Changing the theme reset verification. Please complete it again to send.',
+  'contact.captcha.unavailable':
+    'Verification could not load. Reload the page to try again or contact me by email.',
   'contact.alt': 'Other channels',
   'contact.altBody': 'If you would rather reach me directly:',
   'contact.noscript':
-    'Without JavaScript the form still sends, but it takes you to the provider page. My email is also listed below.',
+    'The form requires JavaScript for spam verification. You can reach me at the email listed below.',
 } as const satisfies Record<keyof typeof es, string>;
 
 export const ui = { es, en } as const;

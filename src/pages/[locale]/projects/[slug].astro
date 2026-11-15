@@ -7,6 +7,7 @@ import Badge from '@/shared/components/ui/Badge.astro';
 import Button from '@/shared/components/ui/Button.astro';
 import Prose from '@/shared/components/ui/Prose.astro';
 import ContentLink from '@/shared/components/ui/ContentLink.astro';
+import ContentTable from '@/shared/components/ui/ContentTable.astro';
 import { ecosystems } from '@/data/profile';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
@@ -76,7 +77,7 @@ const gallery = galleryFor(slugOf(project));
         <dd class="mt-1 font-medium">{t(statusKey)}</dd>
       </div>
       <div>
-        <dt class="text-xs text-muted">{t(`category.${data.category}`)}</dt>
+        <dt class="text-xs text-muted">{t('project.ecosystem')}</dt>
         <dd class="mt-1 font-medium">
           {
             ecosystem && (
@@ -86,6 +87,7 @@ const gallery = galleryFor(slugOf(project));
               </span>
             )
           }
+          <span class="text-muted">, {t(`category.${data.category}`)}</span>
         </dd>
       </div>
     </dl>
@@ -115,17 +117,19 @@ const gallery = galleryFor(slugOf(project));
     }
 
     <Prose class="mt-10">
-      <Content components={{ a: ContentLink }} />
+      <Content components={{ a: ContentLink, table: ContentTable }} />
     </Prose>
 
     <div class="mt-10 flex flex-wrap items-center gap-3 border-t border-subtle pt-6">
       {
         data.private && (
-          <span class="inline-flex items-center gap-2 rounded-lg border border-subtle bg-raised px-3 py-1.5 text-sm text-muted">
-            <Icon name="lucide:lock" class="size-4" aria-hidden="true" />
-            {t('project.private')}
-            <span class="sr-only">. {t('project.privateNote')}</span>
-          </span>
+          <p class="flex w-full flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted">
+            <span class="inline-flex items-center gap-2 rounded-lg border border-subtle bg-raised px-3 py-1.5">
+              <Icon name="lucide:lock" class="size-4" aria-hidden="true" />
+              {t('project.private')}
+            </span>
+            {t('project.privateNote')}
+          </p>
         )
       }
       {

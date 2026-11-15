@@ -6,6 +6,8 @@ import Section from '@/shared/components/ui/Section.astro';
 import Badge from '@/shared/components/ui/Badge.astro';
 import Prose from '@/shared/components/ui/Prose.astro';
 import ContentLink from '@/shared/components/ui/ContentLink.astro';
+import ContentTable from '@/shared/components/ui/ContentTable.astro';
+import Flag from '@/features/blog/components/Flag.astro';
 import { getPosts, readingMinutes, slugOf } from '@/features/blog/queries';
 import { tagLabel } from '@/data/tags';
 import { locales, type Locale } from '@/i18n/config';
@@ -67,7 +69,10 @@ const minutes = readingMinutes(post);
       <div class="mt-5 flex flex-wrap gap-2">
         {
           post.data.tags.map((tag) => (
-            <a href={localizePath(`/blog/tag/${tag}`, locale)}>
+            <a
+              href={localizePath(`/blog/tag/${tag}`, locale)}
+              class="rounded-md transition-colors [&:focus-visible>span]:border-accent [&:focus-visible>span]:text-text [&:hover>span]:border-accent [&:hover>span]:text-text"
+            >
               <Badge variant="outline">{tagLabel(tag, locale)}</Badge>
             </a>
           ))
@@ -100,7 +105,7 @@ const minutes = readingMinutes(post);
       }
 
       <Prose class="mt-10">
-        <Content components={{ a: ContentLink }} />
+        <Content components={{ a: ContentLink, table: ContentTable, Flag }} />
       </Prose>
 
       {

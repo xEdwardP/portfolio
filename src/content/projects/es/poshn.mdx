@@ -1,0 +1,69 @@
+---
+title: PosHn
+summary: Sistema de punto de venta de escritorio para Honduras, en desarrollo con C# y .NET 10. Compras, inventario por sucursal y reglas de negocio separadas de la interfaz.
+role: Aplicación de escritorio
+tier: case-study
+ecosystem: dotnet
+category: desktop
+stack:
+  - C#
+  - .NET 10
+  - WPF
+  - Entity Framework Core
+  - SQL Server
+  - xUnit
+year: 2026
+status: active
+featured: false
+order: 13
+repos:
+  - label: Repositorio
+    url: https://github.com/xEdwardP/PosHn
+highlights:
+  - Arquitectura en cuatro capas con reglas de dominio independientes
+  - Compras y movimientos de inventario en una misma transacción
+  - Existencias por sucursal y cálculo de costo promedio ponderado
+---
+
+## El problema
+
+Un punto de venta necesita mantener coherentes las compras, las existencias y los importes,
+además de adaptarse a las necesidades del comercio local. Una operación incompleta puede
+dejar una compra registrada sin su correspondiente entrada de inventario.
+
+PosHn es un sistema de escritorio para Honduras, **en desarrollo**, que construye esa base
+con reglas de negocio separadas de la interfaz.
+
+## Decisiones de arquitectura
+
+### Cuatro capas con responsabilidades distintas
+
+El dominio contiene entidades, objetos de valor y reglas puras. La capa de aplicación
+coordina casos de uso, validaciones y contratos. Infraestructura implementa la persistencia
+con Entity Framework Core y SQL Server, mientras presentación contiene la interfaz WPF y
+la configuración de dependencias.
+
+Las dependencias apuntan hacia el dominio. Esto permite probar cálculos y validaciones sin
+abrir ventanas ni depender de los componentes visuales.
+
+### Compras e inventario como una sola operación
+
+El registro de una compra valida sus datos, comprueba los productos y rechaza números de
+factura repetidos para el mismo proveedor. La compra y sus movimientos de entrada se
+guardan dentro de una misma transacción.
+
+El inventario mantiene existencias por sucursal, un historial de movimientos o kardex y
+ajustes de stock. Las entradas actualizan el costo promedio ponderado; las salidas se
+validan contra las existencias disponibles.
+
+### Reglas comprobables
+
+Los cálculos de costos, redondeos y validaciones viven en el dominio. El proyecto incluye
+pruebas con xUnit y utiliza inyección de dependencias para conectar los casos de uso con
+sus implementaciones.
+
+## Estado actual
+
+La base implementada incluye compras, inventario, operaciones de caja y reglas para
+autorizaciones fiscales. El proyecto continúa por etapas: el motor de facturación y la
+pantalla de ventas forman parte del trabajo planificado.

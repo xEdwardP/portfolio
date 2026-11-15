@@ -19,6 +19,7 @@ const tags = await getTags(locale);
 
 const pageHref = (page: number) =>
   page === 1 ? localizePath('/blog', locale) : localizePath(`/blog/page/${page}`, locale);
+const pages = Array.from({ length: lastPage }, (_, index) => index + 1);
 ---
 
 <div class="flex flex-wrap items-start justify-between gap-4">
@@ -38,11 +39,47 @@ const pageHref = (page: number) =>
   </a>
 </div>
 
+<form
+  hidden
+  role="search"
+  data-blog-search
+  data-index={`/${locale}/blog/search.json`}
+  data-one={t('blog.resultsOne')}
+  data-other={t('blog.resultsOther')}
+  data-error={t('blog.searchError')}
+  class="mt-8"
+>
+  <label for="blog-search" class="mb-1.5 block text-sm font-medium"
+    >{t('blog.search')}</label
+  >
+  <div class="relative max-w-xl">
+    <Icon
+      name="lucide:search"
+      class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+      aria-hidden="true"
+    />
+    <input
+      id="blog-search"
+      type="search"
+      name="q"
+      autocomplete="off"
+      spellcheck="false"
+      enterkeyhint="search"
+      placeholder={t('blog.searchPlaceholder')}
+      class="h-11 w-full rounded-xl border border-control bg-surface pr-3 pl-9 text-sm text-text placeholder:text-muted"
+    />
+  </div>
+  <p class="mt-2 text-sm text-muted" aria-live="polite" data-search-status></p>
+</form>
+
 {
   tags.length > 0 && (
     <nav aria-label={t('blog.tags')} class="mt-6 flex flex-wrap gap-2">
       {tags.map((tag) => (
-        <a href={localizePath(`/blog/tag/${tag.id}`, locale)}>
+        <a
+          href={localizePath(`/blog/tag/${tag.id}`, locale)}
+          class="rounded-md transition-colors [&:focus-visible>span]:border-accent [&:focus-visible>span]:text-text [&:hover>span]:border-accent [&:hover>span]:text-text"
+        >
           <Badge variant="outline">{tag.label}</Badge>
         </a>
       ))}
@@ -50,53 +87,229 @@ const pageHref = (page: number) =>
   )
 }
 
-{
-  posts.length === 0 ? (
-    <p class="mt-12 text-muted">{t('blog.empty')}</p>
-  ) : (
-    <ul class="mt-10 grid gap-4 reveal-stagger sm:grid-cols-2 lg:grid-cols-3">
-      {posts.map((post) => (
-        <li class="contents">
-          <PostCard post={post} locale={locale} headingLevel={2} />
-        </li>
-      ))}
-    </ul>
-  )
-}
+<div hidden data-search-results>
+  <p class="mt-10 text-muted" hidden data-search-empty>{t('blog.noResults')}</p>
+  <ul class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-search-list></ul>
+  <template data-search-item>
+    <li>
+      <article
+        class="group relative flex h-full flex-col rounded-xl border border-subtle bg-surface p-5 transition-colors focus-within:border-strong hover:border-strong"
+      >
+        <p class="mb-2 font-mono text-xs text-muted">
+          <time data-field="date"></time>
+          <span aria-hidden="true">·</span>
+          <span data-field="minutes"></span>
+          {t('blog.readingTime')}
+        </p>
+        <h2 class="mb-2 font-display text-lg font-semibold tracking-tight">
+          <a
+            data-field="title"
+            class="transition group-hover:text-accent after:absolute after:inset-0"></a>
+        </h2>
+        <p data-field="description" class="mb-4 flex-1 text-sm text-muted"></p>
+        <p data-field="tags" class="font-mono text-xs text-muted"></p>
+      </article>
+    </li>
+  </template>
+</div>
 
-{
-  lastPage > 1 && (
-    <nav
-      class="mt-10 flex items-center justify-between border-t border-subtle pt-6 text-sm"
-      aria-label={t('nav.blog')}
-    >
-      {currentPage > 1 ? (
-        <a
-          href={pageHref(currentPage - 1)}
-          class="inline-flex items-center gap-1.5 text-accent"
-        >
-          <Icon name="lucide:arrow-left" class="size-4" aria-hidden="true" />
-          {t('blog.newer')}
-        </a>
-      ) : (
-        <span />
-      )}
+<div data-search-default>
+  {
+    posts.length === 0 ? (
+      <p class="mt-12 text-muted">{t('blog.empty')}</p>
+    ) : (
+      <ul class="mt-10 grid gap-4 reveal-stagger sm:grid-cols-2 lg:grid-cols-3">
+        {posts.map((post) => (
+          <li class="contents">
+            <PostCard post={post} locale={locale} headingLevel={2} />
+          </li>
+        ))}
+      </ul>
+    )
+  }
 
-      <span class="font-mono text-xs text-muted">
-        {currentPage} / {lastPage}
-      </span>
+  {
+    lastPage > 1 && (
+      <nav
+        class="mt-10 flex flex-wrap items-center justify-between gap-4 border-t border-subtle pt-6 text-sm"
+        aria-label={t('blog.pagination')}
+      >
+        {currentPage > 1 ? (
+          <a
+            href={pageHref(currentPage - 1)}
+            rel="prev"
+            class="inline-flex items-center gap-1.5 link-underline text-accent transition-colors hover:text-accent-hover"
+          >
+            <Icon name="lucide:arrow-left" class="size-4" aria-hidden="true" />
+            {t('blog.newer')}
+          </a>
+        ) : (
+          <span />
+        )}
 
-      {currentPage < lastPage ? (
-        <a
-          href={pageHref(currentPage + 1)}
-          class="inline-flex items-center gap-1.5 text-accent"
-        >
-          {t('blog.older')}
-          <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-        </a>
-      ) : (
-        <span />
-      )}
-    </nav>
-  )
-}
+        <ol class="flex items-center gap-1">
+          {pages.map((page) => (
+            <li>
+              <a
+                href={pageHref(page)}
+                aria-current={page === currentPage ? 'page' : undefined}
+                class="grid size-9 place-items-center rounded-lg text-muted tabular-nums transition-colors hover:bg-raised hover:text-text aria-[current=page]:bg-accent aria-[current=page]:text-on-accent"
+              >
+                {page}
+              </a>
+            </li>
+          ))}
+        </ol>
+
+        {currentPage < lastPage ? (
+          <a
+            href={pageHref(currentPage + 1)}
+            rel="next"
+            class="inline-flex items-center gap-1.5 link-underline text-accent transition-colors hover:text-accent-hover"
+          >
+            {t('blog.older')}
+            <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
+          </a>
+        ) : (
+          <span />
+        )}
+      </nav>
+    )
+  }
+</div>
+
+<script>
+  interface Entry {
+    title: string;
+    description: string;
+    url: string;
+    date: string;
+    iso: string;
+    minutes: number;
+    tags: string[];
+    text: string;
+  }
+
+  const form = document.querySelector<HTMLFormElement>('[data-blog-search]');
+  const input = form?.querySelector<HTMLInputElement>('input[type="search"]');
+  const status = form?.querySelector<HTMLElement>('[data-search-status]');
+  const results = document.querySelector<HTMLElement>('[data-search-results]');
+  const list = results?.querySelector<HTMLElement>('[data-search-list]');
+  const empty = results?.querySelector<HTMLElement>('[data-search-empty]');
+  const template = results?.querySelector<HTMLTemplateElement>('[data-search-item]');
+  const fallback = document.querySelector<HTMLElement>('[data-search-default]');
+
+  const normalize = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase();
+
+  type Indexed = Entry & { haystack: string };
+
+  let pending: Promise<Indexed[]> | undefined;
+  let latest = 0;
+
+  async function fetchIndex(url: string): Promise<Indexed[]> {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Search index responded ${response.status}`);
+    const entries = (await response.json()) as Entry[];
+    return entries.map((entry) => ({ ...entry, haystack: normalize(entry.text) }));
+  }
+
+  function load(): Promise<Indexed[]> {
+    const url = form?.dataset.index;
+    if (!url) return Promise.resolve([]);
+    pending ??= fetchIndex(url).catch((error: unknown) => {
+      pending = undefined;
+      throw error;
+    });
+    return pending;
+  }
+
+  function render(entries: Entry[]) {
+    if (!list || !template) return;
+    list.replaceChildren(
+      ...entries.map((entry) => {
+        const item = template.content.cloneNode(true) as DocumentFragment;
+        const field = (name: string) =>
+          item.querySelector<HTMLElement>(`[data-field="${name}"]`);
+        const link = field('title') as HTMLAnchorElement | null;
+        const date = field('date') as HTMLTimeElement | null;
+        if (link) {
+          link.href = entry.url;
+          link.textContent = entry.title;
+        }
+        if (date) {
+          date.dateTime = entry.iso;
+          date.textContent = entry.date;
+        }
+        field('minutes')?.replaceChildren(String(entry.minutes));
+        field('description')?.replaceChildren(entry.description);
+        field('tags')?.replaceChildren(entry.tags.join(', '));
+        return item;
+      })
+    );
+  }
+
+  function remember(query: string) {
+    const url = new URL(window.location.href);
+    if (query) url.searchParams.set('q', query);
+    else url.searchParams.delete('q');
+    window.history.replaceState(window.history.state, '', url);
+  }
+
+  async function search(query: string) {
+    const request = ++latest;
+    const terms = normalize(query).split(/\s+/).filter(Boolean);
+    const active = terms.length > 0;
+
+    if (results) results.hidden = !active;
+    if (fallback) fallback.hidden = active;
+    remember(query.trim());
+
+    if (!active) {
+      if (status) status.textContent = '';
+      return;
+    }
+
+    let entries: Indexed[];
+    try {
+      entries = await load();
+    } catch {
+      if (request !== latest) return;
+      if (results) results.hidden = true;
+      if (fallback) fallback.hidden = false;
+      if (status) status.textContent = form?.dataset.error ?? '';
+      return;
+    }
+
+    if (request !== latest) return;
+
+    const matches = entries.filter((entry) =>
+      terms.every((term) => entry.haystack.includes(term))
+    );
+
+    render(matches);
+    if (empty) empty.hidden = matches.length > 0;
+    if (status) {
+      const word = matches.length === 1 ? form?.dataset.one : form?.dataset.other;
+      status.textContent = `${matches.length} ${word ?? ''}`;
+    }
+  }
+
+  if (form && input) {
+    form.hidden = false;
+    form.addEventListener('submit', (event) => event.preventDefault());
+    input.addEventListener('input', () => void search(input.value));
+    input.addEventListener('focus', () => void load().catch(() => undefined), {
+      once: true,
+    });
+
+    const initial = new URLSearchParams(window.location.search).get('q');
+    if (initial) {
+      input.value = initial;
+      void search(initial);
+    }
+  }
+</script>

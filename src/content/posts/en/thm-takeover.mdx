@@ -1,0 +1,198 @@
+---
+title: 'TakeOver'
+description: 'Subdomain enumeration with FFUF and TLS certificate inspection (SAN) to uncover a hidden host that holds the flag.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Difficulty:** Easy **Category:** Subdomain enumeration (Virtual Hosts), fuzzing with FFUF, TLS certificate inspection (Subject Alternative Name), editing `/etc/hosts` **Room:** [https://tryhackme.com/room/takeover](https://tryhackme.com/room/takeover)
+
+## Room description
+
+A challenge focused entirely on **subdomain recon and enumeration** techniques, with no need to exploit any code vulnerability. The target site (`futurevera.thm`) hides content behind several subdomains and, within one of them, an **additional fourth-level subdomain** whose name can only be discovered by inspecting the server’s **TLS certificate** — a passive recon technique very common in real pentesting and _bug bounty_ programs.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy; these notes use `TARGET_IP` as an example from one specific session). The `futurevera.thm` domain and its subdomains are fixed, since they are part of the content of the web application served by the machine (resolved locally via `/etc/hosts`, not by public DNS).
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p takeover/{scans,content,scripts} && cd takeover
+```
+
+---
+
+## 2. Resolving the main domain
+
+Unlike previous machines where you work directly against an IP, this room provides a **domain name** (`futurevera.thm`) as the target, which is not resolvable by public DNS — it has to be mapped manually to the assigned IP:
+
+```bash
+sudo nano /etc/hosts
+```
+
+Add the line:
+
+```
+{IP}    futurevera.thm
+```
+
+With this it is now possible to visit `http://futurevera.thm/` or `https://futurevera.thm/` from the browser or with command-line tools, just as if it were a normal public domain.
+
+---
+
+## 3. Port scan
+
+```bash
+nmap futurevera.thm -oN scans/nmapResults.txt
+```
+
+- When given the domain name instead of the IP directly, `nmap` resolves it using the entry we just added in `/etc/hosts`.
+
+**Expected ports:**
+
+| Port    | Service                           |
+| ------- | --------------------------------- |
+| 22/tcp  | SSH                               |
+| 80/tcp  | HTTP (usually redirects to HTTPS) |
+| 443/tcp | HTTPS                             |
+
+Visiting the site in the browser loads the main “Futurevera” page — a fictional company — with no obvious content of interest at a glance, and nothing relevant in its HTML source either. A classic directory fuzz (`gobuster dir`) over this domain usually yields no useful results, since the room’s real content **is not in paths of the main domain, but in different subdomains**.
+
+---
+
+## 4. Subdomain enumeration (Virtual Host fuzzing)
+
+As the room’s own name suggests (“TakeOver”, referring to the concept of _subdomain takeover_), the central recon vector is finding **hidden subdomains** of the main domain. Unlike directory fuzzing (which tries different _paths_ on the same host), here you fuzz the HTTP request’s **`Host`** header, trying different subdomains against the same IP — a technique called **VHost fuzzing** (Virtual Host fuzzing).
+
+### 4.1 Establish a baseline (“not found” response size)
+
+Before launching the fuzz, it is worth checking the response size the server gives for a subdomain that **certainly does not exist**, so it can be filtered out afterwards and avoid hundreds of false positives:
+
+```bash
+curl -s -o /dev/null -w "%{size_download}\n" -k -H "Host: randomnamethatdoesnotexist123.futurevera.thm" https://{IP}/
+```
+
+This usually returns a fixed size (for example, `4605` bytes) corresponding to the server’s error/default page when the requested `Host` matches no configured vhost.
+
+### 4.2 Fuzzing with FFUF
+
+```bash
+ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+     -u https://{IP}/ \
+     -H "Host: FUZZ.futurevera.thm" \
+     -fs 4605
+```
+
+- `-w`: wordlist of candidate subdomain names (SecLists includes several lists specific to DNS/subdomain discovery).
+- `-u https://{IP}/`: points directly at the IP (not the domain), since what we are manipulating is precisely the `Host` header.
+- `-H "Host: FUZZ.futurevera.thm"`: FFUF replaces `FUZZ` with each word in the wordlist, trying a different subdomain on each request.
+- `-fs 4605`: **filters** (excludes from the results) responses whose size exactly matches that of the “not found” page established in the previous step, leaving only the subdomains that do exist visible.
+
+**Expected result:**
+
+```
+blog.futurevera.thm
+support.futurevera.thm
+```
+
+Equivalent alternative with `gobuster` in `vhost` mode:
+
+```bash
+gobuster vhost -u https://futurevera.thm -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+```
+
+### 4.3 Add the new subdomains to `/etc/hosts`
+
+```bash
+sudo nano /etc/hosts
+```
+
+```
+{IP}    futurevera.thm blog.futurevera.thm support.futurevera.thm
+```
+
+Exploring `blog.futurevera.thm` turns up generic blog content with no additional relevant clues. The interesting subdomain is **`support.futurevera.thm`**, described in the room’s own narrative as an “under development” section.
+
+---
+
+## 5. Inspecting the TLS certificate of `support.futurevera.thm`
+
+Visiting `https://support.futurevera.thm/` in the browser raises a certificate warning (since it is a self-signed certificate or one not matching the expected domain). Instead of simply ignoring this warning, it is worth **inspecting the certificate itself**, since it often reveals additional information in the **SAN (Subject Alternative Name)** field — the list of all domain names for which that certificate is valid, which in badly managed configurations may include internal or development subdomains not meant to be public.
+
+### 5.1 From the browser
+
+Click the padlock icon (or “Not secure”) next to the URL → “View certificate” → review the **“Subject Alternative Name” (DNS Name)** field.
+
+### 5.2 From the command line (alternative)
+
+```bash
+nmap -p443 --script ssl-cert support.futurevera.thm
+```
+
+- nmap’s `ssl-cert` script extracts and shows the TLS certificate’s metadata, including the SAN field, without needing to open a browser.
+
+Or, equivalently, with OpenSSL directly:
+
+```bash
+openssl s_client -connect support.futurevera.thm:443 -servername support.futurevera.thm </dev/null 2>/dev/null | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+```
+
+**Result (certificate’s DNS Name / SAN field):**
+
+```
+secrethelpdesk934752.support.futurevera.thm
+```
+
+This is a **fourth-level subdomain**, deliberately “hidden” (never linked from any visible page, nor present in any standard fuzzing wordlist), discoverable only because whoever configured the TLS certificate carelessly included it in the same certificate as the public `support.futurevera.thm` subdomain — a real and frequent misconfiguration in corporate environments, where “wildcard” certificates or certificates shared across multiple services end up leaking the existence of internal/test subdomains that should have stayed private.
+
+---
+
+## 6. Accessing the secret subdomain and getting the flag
+
+```bash
+sudo nano /etc/hosts
+```
+
+```
+{IP}    futurevera.thm support.futurevera.thm secrethelpdesk934752.support.futurevera.thm
+```
+
+```bash
+curl -v http://secrethelpdesk934752.support.futurevera.thm
+```
+
+- `-v` (verbose): shows not only the response body, but also all the HTTP **headers** exchanged — important in this room, since, depending on the server’s exact configuration at the time of the deploy, the flag may appear directly in the **body of an error page** (for example, a “server not found” that mistakenly leaks the full destination URL), or in a **redirect** header (`Location:`) of a `302 Found` response to an external resource (in some variants of the room, a cloud storage bucket whose name contains the flag) — hence the importance of reviewing the full response with `-v`, and not just the body with a simple `curl` request.
+
+**Flag obtained:**
+
+<Flag value="flag{beea0d6edfcee06a59b83fb50ae81b2f}" />
+
+---
+
+## 7. Attack chain summary
+
+1. **Manual resolution of the main domain** (`futurevera.thm`) via `/etc/hosts`, since it is not resolvable by public DNS.
+2. **Recon** with `nmap` → SSH (22), HTTP (80, redirects to HTTPS), HTTPS (443).
+3. **Subdomain enumeration (VHost fuzzing)** with `ffuf`/`gobuster vhost`, filtering by the “not found” response size → discover `blog.futurevera.thm` and `support.futurevera.thm`.
+4. **TLS certificate inspection** of `support.futurevera.thm` (via browser, `nmap --script ssl-cert`, or `openssl s_client`) → the SAN field reveals a hidden fourth-level subdomain: `secrethelpdesk934752.support.futurevera.thm`.
+5. **Add the secret subdomain** to `/etc/hosts` and visit it → the flag is obtained directly in the response body or in its HTTP headers (`curl -v`).
+
+## 8. Lessons learned / key concepts
+
+- **Subdomain fuzzing (VHost fuzzing)** is a distinct and complementary technique to directory fuzzing: instead of trying paths (`/admin`, `/backup`, etc.) on the same host, you manipulate the HTTP request’s `Host` header to discover completely different applications/sites hosted on the same IP.
+- **Establishing a “not found” baseline before fuzzing** (whether by response size, status code, or both) is essential to automatically filter the massive noise of false positives that any brute-force attack against a web server generates.
+- **TLS certificates can leak sensitive information** through the SAN (Subject Alternative Name) field: when a single certificate covers several domains or subdomains (common with wildcard certificates or centrally generated ones), anyone can read that full list simply by inspecting the public certificate — with no vulnerability needed, it is information exposed by design of the TLS protocol itself.
+- **“Secret” subdomains with long, random names** (like `secrethelpdesk934752`) are an attempt at “security through obscurity” — assuming that, since it is not linked or guessable, nobody will find it. As this room shows, that assumption fails the moment _any_ collateral information leak exists (here, a misconfigured TLS certificate) that reveals its existence.
+- **`curl -v` (or `-i` for headers only)** should be the default habit when inspecting HTTP responses during recon, since relevant information (redirects, tokens, clues) is often found in the headers and not in the visible body of the page.
+
+## 9. Tools used
+
+`nmap` (including the `ssl-cert` script), editing `/etc/hosts`, `ffuf` / `gobuster` (`vhost` mode), a web browser (certificate inspection), `curl`, `openssl` (command-line alternative to inspect certificates).
+
+---
+
+_Academic write-up, built from my own notes solving the “TakeOver” machine on TryHackMe, supplemented with public community write-ups to reconstruct the full subdomain-discovery process (VHost fuzzing with FFUF) and the TLS certificate inspection technique that reveals the hidden subdomain._

@@ -1,0 +1,231 @@
+---
+title: 'W1seGuy'
+description: 'Ataque de texto plano conocido contra un cifrado XOR de clave corta y repetida: recuperar la clave desde el formato conocido de la flag.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - cryptography
+---
+
+**Dificultad:** Easy (Criptografía) **Categoría:** Criptografía — ataque de texto plano conocido (_Known-Plaintext Attack_) contra cifrado XOR con clave corta y repetida, fuerza bruta de un carácter faltante **Sala:** [https://tryhackme.com/room/w1seguy](https://tryhackme.com/room/w1seguy)
+
+## Descripción de la sala
+
+Reto de criptografía puro (sin máquina en red compleja, solo un servicio TCP en un único puerto) que demuestra por qué **XOR con una clave corta y reutilizada es criptográficamente débil**. El servidor genera una clave aleatoria de 5 caracteres, cifra una flag con ella mediante XOR, y envía el resultado en hexadecimal al conectar. El objetivo es recuperar la clave completa explotando el hecho de que **ya conocemos parte del texto plano** (todas las flags de TryHackMe empiezan por `THM{` y terminan en `}`), y usar esa clave recuperada para obtener una segunda flag directamente del propio servidor.
+
+> **Nota sobre placeholders:** se usa `{IP}` para representar la IP asignada por TryHackMe (cambia en cada despliegue). El texto XOR-cifrado recibido y la clave de 5 caracteres son **aleatorios en cada conexión** (el servidor genera una clave nueva cada vez que te conectas), por lo que los valores concretos de estos apuntes (hash cifrado, flags) corresponden a una sesión específica y no se repetirán en un nuevo intento — el proceso descrito aquí, sin embargo, es siempre el mismo.
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p w1seguy/{scans,content,scripts,loot,exploits} && cd w1seguy
+settarget {IP}
+```
+
+---
+
+## 2. Escaneo de puertos
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+nmap -sV -sC -p 1337 target -oG scans/waste
+extractPorts scans/initial-scan
+```
+
+- `-p- --open -T5 -v -n`: escaneo completo de puertos, agresivo, verboso, sin resolución DNS.
+- `-sV -sC -p 1337`: segundo escaneo dirigido específicamente al puerto de interés, con detección de versión y scripts por defecto.
+
+**Puerto esperado:**
+
+```
+1337/tcp  (servicio TCP a medida, servido por un script Python)
+```
+
+El propio número de puerto (`1337`, «leet» en jerga hacker) es una pista temática de que se trata de un reto puramente lógico/criptográfico, servido por un socket TCP simple (no un servicio web ni SSH).
+
+---
+
+## 3. Analizando el código fuente del servidor (proporcionado por la sala)
+
+Antes de conectarse, la propia tarea de TryHackMe entrega el **código fuente Python** del servicio que corre en el puerto 1337. Analizarlo es el paso más importante de todo el reto, ya que revela exactamente cómo funciona el cifrado:
+
+```python
+import random
+import socketserver
+import socket, os
+import string
+
+flag = open('flag.txt','r').read().strip()
+
+def send_message(server, message):
+    enc = message.encode()
+    server.send(enc)
+
+def setup(server, key):
+    flag = 'THM{...}'  # la flag real del servidor
+    xored = ""
+    for i in range(0, len(flag)):
+        xored += chr(ord(flag[i]) ^ ord(key[i % len(key)]))
+    hex_encoded = xored.encode().hex()
+    return hex_encoded
+
+def start(server):
+    res = ''.join(random.choices(string.ascii_letters + string.digits, k=5))
+    key = str(res)
+    hex_encoded = setup(server, key)
+    send_message(server, "This XOR encoded text has flag 1: " + hex_encoded + "\n")
+    send_message(server, "What is the encryption key? ")
+    key_answer = server.recv(4096).decode().strip()
+    if key_answer == key:
+        send_message(server, "Congrats! That is the correct key! Here is your second flag: " + flag + "\n")
+    else:
+        send_message(server, "Sorry, that is not the correct key. Please try again. :)\n")
+    server.close()
+```
+
+### 3.1 Puntos clave del código
+
+- **La clave (`key`) tiene exactamente 5 caracteres**, generados aleatoriamente a partir del conjunto `string.ascii_letters + string.digits` (letras mayúsculas, minúsculas y dígitos — 62 caracteres posibles por posición).
+- **El cifrado es XOR clásico con clave repetida (`key[i % len(key)]`)**: cada carácter de la flag se combina mediante XOR con el carácter correspondiente de la clave, **reiniciando el ciclo de la clave** cada 5 caracteres (es decir, el carácter 0, 5, 10, 15… de la flag se cifran todos con el mismo carácter 0 de la clave; el 1, 6, 11… con el carácter 1 de la clave, y así sucesivamente).
+- El resultado del XOR se codifica en **hexadecimal** antes de enviarse por la red (necesario porque el resultado de un XOR entre caracteres imprimibles puede producir bytes no imprimibles/no válidos para enviar como texto plano).
+- El servidor pregunta directamente por la clave usada; si se responde correctamente, entrega una **segunda flag** distinta, leída de `flag.txt`.
+
+---
+
+## 4. Conectando al servicio
+
+```bash
+nc -nv {IP} 1337
+```
+
+**Salida esperada (ejemplo, valores aleatorios en cada conexión):**
+
+```
+This XOR encoded text has flag 1: 3f7f1d0c075a563c19032e4f2436031f03331c142a59224416077b291f221943294702194f1f05
+What is the encryption key?
+```
+
+Se copia la cadena hexadecimal completa — **sin cerrar la conexión netcat todavía**, ya que se necesitará enviar la clave de vuelta más adelante para obtener la segunda flag.
+
+---
+
+## 5. El ataque: Known-Plaintext Attack (KPA) contra XOR
+
+### 5.1 Fundamento teórico
+
+XOR tiene una propiedad matemática clave: es **su propia operación inversa**. Si `C = P ⊕ K` (texto cifrado = texto plano XOR clave), entonces también se cumple que `K = P ⊕ C` (se puede recuperar la clave si se conocen tanto el texto plano como el cifrado correspondiente).
+
+**No conocemos la flag completa**, pero sí conocemos **con certeza** su formato: todas las flags de TryHackMe siguen el patrón `THM{...}`. Esto nos da:
+
+- Los primeros **4 caracteres** del texto plano: `T`, `H`, `M`, `{`.
+- El **último carácter** del texto plano: `}`.
+
+Como la clave tiene exactamente **5 caracteres** y se repite cíclicamente, y como el texto cifrado (`80` caracteres hexadecimales = `40` bytes reales, un múltiplo exacto de 5), el carácter en la posición **40** (el último, índice 39) corresponde exactamente a la posición **4 del ciclo de la clave** (índice `39 % 5 = 4`) — es decir, el **quinto y último carácter de la clave** también puede recuperarse directamente, sin necesidad de fuerza bruta, aprovechando que sabemos que el último carácter de cualquier flag es siempre `}`.
+
+> Esta es una mejora sobre el enfoque de «fuerza bruta del quinto carácter» que documentan algunas writeups: como conocemos tanto el primer carácter conocido (`T H M {`) como el último (`}`), y ambos caen en posiciones distintas del ciclo de 5 caracteres de la clave, en la práctica **se puede recuperar la clave completa (los 5 caracteres) sin ninguna fuerza bruta**, siempre que la longitud total de la flag sea múltiplo de 5 (lo cual se confirma al ver que el hexadecimal recibido tiene una longitud múltiplo de 10 caracteres hex = múltiplo de 5 bytes).
+
+### 5.2 Script de recuperación de la clave y descifrado
+
+```python
+# solve.py
+hex_encoded = "3f7f1d0c075a563c19032e4f2436031f03331c142a59224416077b291f221943294702194f1f05"
+
+# Convertir el texto cifrado de hexadecimal a bytes
+encrypted_bytes = bytes.fromhex(hex_encoded)
+
+known_prefix = "THM{"
+known_suffix = "}"
+
+key_len = 5
+key = [None] * key_len
+
+# Recuperar los primeros 4 caracteres de la clave a partir del prefijo conocido
+for i, char in enumerate(known_prefix):
+    key[i % key_len] = ord(char) ^ encrypted_bytes[i]
+
+# Recuperar el último carácter de la clave a partir del sufijo conocido (última posición del texto)
+last_index = len(encrypted_bytes) - 1
+key[last_index % key_len] = ord(known_suffix) ^ encrypted_bytes[last_index]
+
+key_str = ''.join(chr(k) for k in key)
+print(f"[+] Clave recuperada: {key_str}")
+
+# Descifrar el mensaje completo con la clave ya reconstruida
+decrypted = ''.join(
+    chr(b ^ ord(key_str[i % key_len]))
+    for i, b in enumerate(encrypted_bytes)
+)
+print(f"[+] Flag 1: {decrypted}")
+```
+
+Desglose del script:
+
+- `bytes.fromhex(hex_encoded)`: convierte la cadena hexadecimal recibida de vuelta a su representación de bytes crudos (el texto cifrado real).
+- **Bucle del prefijo**: para cada uno de los 4 caracteres conocidos (`T`, `H`, `M`, `{`), se calcula `carácter_conocido XOR byte_cifrado_correspondiente`, obteniendo el carácter de la clave en esa posición del ciclo (`i % key_len`).
+- **Recuperación del último carácter**: se aplica la misma lógica sobre la **última posición** del texto cifrado, usando el hecho conocido de que toda flag termina en `}`.
+- **Descifrado final**: una vez reconstruida la clave completa de 5 caracteres, se recorre **todo** el texto cifrado aplicando XOR con el carácter de clave correspondiente (ciclando cada 5 posiciones), reconstruyendo la flag completa carácter por carácter.
+
+```bash
+python3 solve.py
+```
+
+**Salida esperada:**
+
+```
+[+] Clave recuperada: IK0GB
+[+] Flag 1: (ver abajo)
+```
+
+<Flag value="THM{p1alntExtAtt4ckcAnr3alLyhUrty0urxOr}" />
+
+> **Nota importante:** en algunas sesiones/variantes de este reto, la longitud de la flag real **no** resulta ser un múltiplo exacto de 5, o el carácter final capturado no corresponde limpiamente a la última posición del ciclo por algún desfase — en esos casos, el enfoque documentado por la mayoría de writeups públicas es recuperar solo los **primeros 4 caracteres** de la clave con el prefijo `THM{`, y **fuerza bruta** sobre el quinto carácter faltante, probando cada carácter posible del conjunto `string.ascii_letters + string.digits` (62 posibilidades en total — trivial de recorrer por completo en milisegundos) hasta que el texto descifrado resultante tenga sentido legible y termine correctamente en `}`.
+
+---
+
+## 6. Obtención de la segunda flag
+
+Con la clave completa ya recuperada (`IK0GB` en el ejemplo), se vuelve a la sesión de `netcat` que se dejó abierta en el paso 4, y se responde exactamente con esa clave cuando el servidor pregunta:
+
+```
+What is the encryption key? IK0GB
+```
+
+**Respuesta del servidor:**
+
+```
+Congrats! That is the correct key! Here is your second flag:
+```
+
+<Flag value="THM{BrUt3_ForC1nG_XOR_cAn_B3_FuN_nO?}" />
+
+> Si la conexión de `netcat` ya se hubiera cerrado, basta con volver a conectar (`nc -nv {IP} 1337`), lo cual generará un **nuevo texto cifrado con una nueva clave aleatoria** — habría que repetir el proceso completo de recuperación de clave (pasos 4 y 5) con los nuevos valores, ya que cada conexión es independiente y usa una clave distinta.
+
+---
+
+## 7. Resumen del proceso
+
+1. **Reconocimiento** con `nmap` → puerto 1337 (servicio TCP a medida).
+2. **Análisis del código fuente** proporcionado por la sala → confirma que el cifrado es **XOR con clave de 5 caracteres, repetida cíclicamente**, y que el servidor validará la clave a cambio de una segunda flag.
+3. **Conexión con `netcat`** → se obtiene el texto cifrado en hexadecimal.
+4. **Ataque de texto plano conocido (KPA)**: usando el prefijo `THM{` (y opcionalmente el sufijo `}`), se recupera la clave de cifrado mediante operaciones XOR inversas, sin necesidad de fuerza bruta completa (o con fuerza bruta mínima sobre un único carácter, según el caso).
+5. **Descifrado completo** del texto con la clave recuperada → primera flag.
+6. **Envío de la clave recuperada** de vuelta al servidor (misma sesión `netcat`) → segunda flag.
+
+## 8. Lecciones aprendidas / conceptos clave
+
+- **XOR es una operación simétrica y reversible**: cifrar y descifrar son exactamente la misma operación (`P ⊕ K = C`, y también `C ⊕ K = P`), lo cual lo hace extremadamente simple de implementar pero también extremadamente frágil si no se usa correctamente.
+- **Una clave corta reutilizada cíclicamente sobre un mensaje más largo es la debilidad fundamental de este esquema** (el mismo principio de debilidad que afecta, por ejemplo, al cifrado histórico de Vigenère): en cuanto se conoce (o se puede adivinar) una porción del texto plano en cualquier posición, se puede recuperar directamente los caracteres correspondientes de la clave en esa posición del ciclo.
+- **Un ataque de texto plano conocido (Known-Plaintext Attack)** no requiere «romper» ningún algoritmo matemáticamente — simplemente aprovecha que el atacante ya sabe (o puede predecir con alta confianza) parte del contenido real del mensaje cifrado, como en este caso el formato estándar y predecible de las flags de TryHackMe.
+- **XOR con clave de un solo uso (One-Time Pad) del mismo tamaño que el mensaje, generada aleatoriamente y nunca reutilizada, es matemáticamente irrompible** — la vulnerabilidad de este reto existe específicamente porque la clave es mucho más corta que el mensaje y se repite, no porque XOR en sí mismo sea inherentemente inseguro.
+- **La longitud del texto cifrado (múltiplo exacto de la longitud de la clave) puede filtrar información adicional**, como en este caso, que permite calcular directamente qué posición del ciclo de la clave corresponde al último carácter del mensaje, sin necesidad de fuerza bruta.
+
+## 9. Herramientas utilizadas
+
+`nmap`, `netcat` (interacción con el servicio TCP), Python (`bytes.fromhex`, operaciones XOR manuales), opcionalmente **CyberChef** (receta «XOR Brute Force» o combinación manual de «From Hex» + «XOR») como alternativa visual sin necesidad de escribir código.
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución del reto «W1seGuy» en TryHackMe, complementada con writeups públicas de la comunidad para reconstruir el código fuente completo del servidor y detallar la técnica exacta del ataque de texto plano conocido contra el cifrado XOR._

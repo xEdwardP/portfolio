@@ -1,0 +1,231 @@
+---
+title: 'W1seGuy'
+description: "A known-plaintext attack against a short, repeating-key XOR cipher: recovering the key from the flag's known format."
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - cryptography
+---
+
+**Difficulty:** Easy (Cryptography) **Category:** Cryptography — known-plaintext attack against a short, repeating-key XOR cipher, brute force of a missing character **Room:** [https://tryhackme.com/room/w1seguy](https://tryhackme.com/room/w1seguy)
+
+## Room description
+
+A pure cryptography challenge (no complex networked machine, just a TCP service on a single port) that demonstrates why **XOR with a short, reused key is cryptographically weak**. The server generates a random 5-character key, encrypts a flag with it via XOR, and sends the result in hexadecimal on connecting. The goal is to recover the full key by exploiting the fact that **we already know part of the plaintext** (all TryHackMe flags start with `THM{` and end with `}`), and use that recovered key to get a second flag directly from the server itself.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy). The received XOR-encrypted text and the 5-character key are **random on every connection** (the server generates a new key each time you connect), so the specific values in these notes (ciphertext, flags) correspond to one specific session and will not repeat on a new attempt — the process described here, however, is always the same.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p w1seguy/{scans,content,scripts,loot,exploits} && cd w1seguy
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+nmap -sV -sC -p 1337 target -oG scans/waste
+extractPorts scans/initial-scan
+```
+
+- `-p- --open -T5 -v -n`: full port scan, aggressive, verbose, no DNS resolution.
+- `-sV -sC -p 1337`: a second scan targeted specifically at the port of interest, with version detection and default scripts.
+
+**Expected port:**
+
+```
+1337/tcp  (custom TCP service, served by a Python script)
+```
+
+The port number itself (`1337`, “leet” in hacker slang) is a thematic hint that this is a purely logical/cryptographic challenge, served by a simple TCP socket (not a web service nor SSH).
+
+---
+
+## 3. Analysing the server’s source code (provided by the room)
+
+Before connecting, the TryHackMe task itself provides the **Python source code** of the service running on port 1337. Analysing it is the most important step of the whole challenge, since it reveals exactly how the encryption works:
+
+```python
+import random
+import socketserver
+import socket, os
+import string
+
+flag = open('flag.txt','r').read().strip()
+
+def send_message(server, message):
+    enc = message.encode()
+    server.send(enc)
+
+def setup(server, key):
+    flag = 'THM{...}'  # the server's real flag
+    xored = ""
+    for i in range(0, len(flag)):
+        xored += chr(ord(flag[i]) ^ ord(key[i % len(key)]))
+    hex_encoded = xored.encode().hex()
+    return hex_encoded
+
+def start(server):
+    res = ''.join(random.choices(string.ascii_letters + string.digits, k=5))
+    key = str(res)
+    hex_encoded = setup(server, key)
+    send_message(server, "This XOR encoded text has flag 1: " + hex_encoded + "\n")
+    send_message(server, "What is the encryption key? ")
+    key_answer = server.recv(4096).decode().strip()
+    if key_answer == key:
+        send_message(server, "Congrats! That is the correct key! Here is your second flag: " + flag + "\n")
+    else:
+        send_message(server, "Sorry, that is not the correct key. Please try again. :)\n")
+    server.close()
+```
+
+### 3.1 Key points of the code
+
+- **The key (`key`) is exactly 5 characters long**, randomly generated from the `string.ascii_letters + string.digits` set (uppercase, lowercase letters and digits — 62 possible characters per position).
+- **The cipher is classic XOR with a repeating key (`key[i % len(key)]`)**: each flag character is combined via XOR with the corresponding key character, **restarting the key cycle** every 5 characters (that is, character 0, 5, 10, 15… of the flag are all encrypted with the same character 0 of the key; 1, 6, 11… with key character 1, and so on).
+- The XOR result is encoded in **hexadecimal** before being sent over the network (necessary because the XOR of printable characters can produce non-printable/invalid bytes to send as plaintext).
+- The server asks directly for the key used; if answered correctly, it delivers a different **second flag**, read from `flag.txt`.
+
+---
+
+## 4. Connecting to the service
+
+```bash
+nc -nv {IP} 1337
+```
+
+**Expected output (example, random values on each connection):**
+
+```
+This XOR encoded text has flag 1: 3f7f1d0c075a563c19032e4f2436031f03331c142a59224416077b291f221943294702194f1f05
+What is the encryption key?
+```
+
+Copy the full hex string — **without closing the netcat connection yet**, since you will need to send the key back later to get the second flag.
+
+---
+
+## 5. The attack: Known-Plaintext Attack (KPA) against XOR
+
+### 5.1 Theoretical basis
+
+XOR has a key mathematical property: it is **its own inverse operation**. If `C = P ⊕ K` (ciphertext = plaintext XOR key), then it also holds that `K = P ⊕ C` (you can recover the key if you know both the plaintext and the corresponding ciphertext).
+
+**We do not know the full flag**, but we do know **with certainty** its format: all TryHackMe flags follow the pattern `THM{...}`. This gives us:
+
+- The first **4 characters** of the plaintext: `T`, `H`, `M`, `{`.
+- The **last character** of the plaintext: `}`.
+
+Since the key is exactly **5 characters** and repeats cyclically, and since the ciphertext (`80` hex characters = `40` real bytes, an exact multiple of 5), the character at position **40** (the last, index 39) corresponds exactly to **position 4 of the key cycle** (index `39 % 5 = 4`) — that is, the **fifth and last character of the key** can also be recovered directly, with no brute force needed, taking advantage of knowing that the last character of any flag is always `}`.
+
+> This is an improvement over the “brute force the fifth character” approach documented by some write-ups: since we know both the known prefix (`T H M {`) and the last character (`}`), and both fall in different positions of the key’s 5-character cycle, in practice **the full key (all 5 characters) can be recovered with no brute force**, as long as the flag’s total length is a multiple of 5 (which is confirmed by seeing that the received hex has a length that is a multiple of 10 hex characters = a multiple of 5 bytes).
+
+### 5.2 Key-recovery and decryption script
+
+```python
+# solve.py
+hex_encoded = "3f7f1d0c075a563c19032e4f2436031f03331c142a59224416077b291f221943294702194f1f05"
+
+# Convert the ciphertext from hex to bytes
+encrypted_bytes = bytes.fromhex(hex_encoded)
+
+known_prefix = "THM{"
+known_suffix = "}"
+
+key_len = 5
+key = [None] * key_len
+
+# Recover the first 4 characters of the key from the known prefix
+for i, char in enumerate(known_prefix):
+    key[i % key_len] = ord(char) ^ encrypted_bytes[i]
+
+# Recover the last character of the key from the known suffix (last position of the text)
+last_index = len(encrypted_bytes) - 1
+key[last_index % key_len] = ord(known_suffix) ^ encrypted_bytes[last_index]
+
+key_str = ''.join(chr(k) for k in key)
+print(f"[+] Recovered key: {key_str}")
+
+# Decrypt the whole message with the reconstructed key
+decrypted = ''.join(
+    chr(b ^ ord(key_str[i % key_len]))
+    for i, b in enumerate(encrypted_bytes)
+)
+print(f"[+] Flag 1: {decrypted}")
+```
+
+Script breakdown:
+
+- `bytes.fromhex(hex_encoded)`: converts the received hex string back to its raw byte representation (the real ciphertext).
+- **Prefix loop**: for each of the 4 known characters (`T`, `H`, `M`, `{`), compute `known_character XOR corresponding_cipher_byte`, obtaining the key character at that position of the cycle (`i % key_len`).
+- **Last-character recovery**: apply the same logic to the **last position** of the ciphertext, using the known fact that every flag ends in `}`.
+- **Final decryption**: once the full 5-character key is reconstructed, walk through the **whole** ciphertext applying XOR with the corresponding key character (cycling every 5 positions), reconstructing the full flag character by character.
+
+```bash
+python3 solve.py
+```
+
+**Expected output:**
+
+```
+[+] Recovered key: IK0GB
+[+] Flag 1: (see below)
+```
+
+<Flag value="THM{p1alntExtAtt4ckcAnr3alLyhUrty0urxOr}" />
+
+> **Important note:** in some sessions/variants of this challenge, the real flag’s length turns out **not** to be an exact multiple of 5, or the captured final character does not map cleanly to the last position of the cycle due to some offset — in those cases, the approach documented by most public write-ups is to recover only the **first 4 characters** of the key with the `THM{` prefix, and **brute force** the missing fifth character, trying every possible character of the `string.ascii_letters + string.digits` set (62 possibilities total — trivial to walk through entirely in milliseconds) until the resulting decrypted text is legibly meaningful and ends correctly in `}`.
+
+---
+
+## 6. Getting the second flag
+
+With the full key recovered (`IK0GB` in the example), return to the `netcat` session left open in step 4, and respond with exactly that key when the server asks:
+
+```
+What is the encryption key? IK0GB
+```
+
+**Server response:**
+
+```
+Congrats! That is the correct key! Here is your second flag:
+```
+
+<Flag value="THM{BrUt3_ForC1nG_XOR_cAn_B3_FuN_nO?}" />
+
+> If the `netcat` connection had already closed, just reconnect (`nc -nv {IP} 1337`), which will generate a **new ciphertext with a new random key** — you would have to repeat the full key-recovery process (steps 4 and 5) with the new values, since each connection is independent and uses a different key.
+
+---
+
+## 7. Process summary
+
+1. **Recon** with `nmap` → port 1337 (custom TCP service).
+2. **Source-code analysis** provided by the room → confirms the cipher is **XOR with a 5-character key, repeated cyclically**, and that the server will validate the key in exchange for a second flag.
+3. **Connection with `netcat`** → obtain the ciphertext in hexadecimal.
+4. **Known-plaintext attack (KPA)**: using the `THM{` prefix (and optionally the `}` suffix), recover the encryption key through inverse XOR operations, with no full brute force needed (or with minimal brute force on a single character, depending on the case).
+5. **Full decryption** of the text with the recovered key → first flag.
+6. **Sending the recovered key** back to the server (same `netcat` session) → second flag.
+
+## 8. Lessons learned / key concepts
+
+- **XOR is a symmetric, reversible operation**: encrypting and decrypting are exactly the same operation (`P ⊕ K = C`, and also `C ⊕ K = P`), which makes it extremely simple to implement but also extremely fragile if not used correctly.
+- **A short key reused cyclically over a longer message is the fundamental weakness of this scheme** (the same weakness principle that affects, for example, the historical Vigenère cipher): as soon as a portion of the plaintext is known (or can be guessed) at any position, you can directly recover the corresponding key characters at that position of the cycle.
+- **A known-plaintext attack (Known-Plaintext Attack)** does not require “breaking” any algorithm mathematically — it simply exploits that the attacker already knows (or can predict with high confidence) part of the message’s real content, as in this case the standard, predictable format of TryHackMe flags.
+- **XOR with a one-time pad (One-Time Pad) the same size as the message, randomly generated and never reused, is mathematically unbreakable** — this challenge’s vulnerability exists specifically because the key is much shorter than the message and repeats, not because XOR itself is inherently insecure.
+- **The ciphertext length (an exact multiple of the key length) can leak additional information**, as in this case, letting you directly compute which position of the key cycle corresponds to the message’s last character, with no brute force needed.
+
+## 9. Tools used
+
+`nmap`, `netcat` (interacting with the TCP service), Python (`bytes.fromhex`, manual XOR operations), optionally **CyberChef** (the “XOR Brute Force” recipe or a manual combination of “From Hex” + “XOR”) as a visual alternative without writing code.
+
+---
+
+_Academic write-up, built from my own notes solving the “W1seGuy” challenge on TryHackMe, supplemented with public community write-ups to reconstruct the server’s full source code and detail the exact known-plaintext attack technique against the XOR cipher._

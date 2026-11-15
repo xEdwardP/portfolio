@@ -45,6 +45,15 @@ describe('localizePath', () => {
 });
 
 describe('switchLocalePath', () => {
+  it('keeps compatible filters and searches without unrelated query parameters', () => {
+    expect(switchLocalePath('/es/projects/?ecosystem=node&utm_source=test', 'en')).toBe(
+      '/en/projects/?ecosystem=node'
+    );
+    expect(switchLocalePath('/es/blog/page/2/?q=React+19', 'en')).toBe(
+      '/en/blog/page/2/?q=React+19'
+    );
+    expect(switchLocalePath('/es/contact/?q=private', 'en')).toBe('/en/contact/');
+  });
   it('keeps the current route when changing language', () => {
     expect(switchLocalePath('/es/blog/post-1/', 'en')).toBe('/en/blog/post-1/');
     expect(switchLocalePath('/en/projects/', 'es')).toBe('/es/projects/');

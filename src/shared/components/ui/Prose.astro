@@ -13,6 +13,8 @@ const { class: className, ...rest } = Astro.props;
 <style>
   .prose-content {
     line-height: 1.75;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .prose-content :global(> * + *) {
@@ -79,6 +81,7 @@ const { class: className, ...rest } = Astro.props;
     background: none;
     color: inherit;
     padding: 0;
+    overflow-wrap: normal;
   }
 
   .prose-content :global(blockquote) {

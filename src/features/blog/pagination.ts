@@ -1,4 +1,4 @@
-export const POSTS_PER_PAGE = 9;
+export const POSTS_PER_PAGE = 12;
 
 export function pageCount(total: number): number {
   return Math.max(1, Math.ceil(total / POSTS_PER_PAGE));

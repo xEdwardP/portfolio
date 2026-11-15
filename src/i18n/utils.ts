@@ -24,7 +24,19 @@ export function localizePath(path: string, locale: Locale): string {
 }
 
 export function switchLocalePath(pathname: string, target: Locale): string {
-  return localizePath(stripLocale(pathname), target);
+  const current = new URL(pathname, 'https://locale.invalid');
+  const route = stripLocale(current.pathname);
+  const query = new URLSearchParams();
+  const key =
+    route === '/projects'
+      ? 'ecosystem'
+      : /^\/blog(?:\/page\/\d+)?$/.test(route)
+        ? 'q'
+        : undefined;
+  if (key && current.searchParams.has(key))
+    query.set(key, current.searchParams.get(key)!);
+  const search = query.toString();
+  return localizePath(route, target) + (search ? `?${search}` : '');
 }
 
 export function getAlternates(pathname: string, site: URL | string) {

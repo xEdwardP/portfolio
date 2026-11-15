@@ -1,0 +1,229 @@
+---
+title: 'Compiled'
+description: 'Ingeniería inversa estática de un binario con Ghidra para entender una comparación defectuosa y derivar la entrada que lo rompe.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - reversing
+---
+
+**Dificultad:** Easy **Categoría:** Ingeniería inversa (Reverse Engineering) estática, análisis con Ghidra, explotación de lógica de comparación defectuosa **Sala:** [https://tryhackme.com/room/compiled](https://tryhackme.com/room/compiled)
+
+## Descripción de la sala
+
+A diferencia de las máquinas anteriores, **Compiled** no es una máquina en red: es un reto de **ingeniería inversa** sobre un único binario ELF que se descarga como archivo de tarea. El objetivo es analizar el binario, entender su lógica interna de validación de contraseña, y encontrar (o forzar) la entrada correcta que hace que el programa imprima `Correct!`.
+
+> **Nota sobre placeholders:** en este reto no hay IP objetivo ni red involucrada — todo el trabajo se realiza sobre el archivo `Compiled.Compiled` descargado localmente. No se requieren placeholders de red.
+
+---
+
+## 1. Preparación del entorno de conexión (VPN)
+
+```bash
+cd thm && sudo openvpn thm.ovpn
+```
+
+Aunque este reto en concreto no requiere conectividad de red hacia una máquina, mantener la VPN de TryHackMe activa es parte de la rutina estándar de trabajo (necesaria para descargar el material de la tarea desde la plataforma si así lo requiere el flujo de trabajo, y para futuras salas). El archivo `.ovpn` es el perfil de configuración de OpenVPN provisto por TryHackMe para el usuario/región.
+
+---
+
+## 2. Preparación del espacio de trabajo
+
+```bash
+mkdir -p compiled/{scans,content,scripts,loot,exploits} && cd compiled
+```
+
+Se descarga el archivo de tarea (botón «Download Task Files» en la sala) y se coloca dentro de esta carpeta, o se usa directamente desde el AttackBox en `/root/Rooms/Compiled/`, según el flujo de TryHackMe.
+
+> **Aviso importante:** el binario de este reto **no se puede ejecutar dentro del AttackBox** de TryHackMe (limitación conocida de la sala). El análisis estático con Ghidra sigue funcionando con normalidad; solo la ejecución directa (`./Compiled.Compiled`) requiere hacerse en una máquina Linux propia (o una VM local).
+
+---
+
+## 3. Identificación del archivo
+
+```bash
+file Compiled.Compiled
+```
+
+**Salida esperada:**
+
+```
+Compiled.Compiled: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV),
+dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, ...
+not stripped
+```
+
+Puntos clave de esta salida:
+
+- **ELF 64-bit**: es un ejecutable nativo de Linux para arquitectura x86-64.
+- **PIE (Position Independent Executable)**: el binario puede cargarse en cualquier dirección de memoria (medida de seguridad estándar, ASLR), pero no afecta al análisis estático que haremos.
+- **dynamically linked**: depende de librerías externas (como `libc`) cargadas en tiempo de ejecución.
+- **not stripped**: el binario **conserva la tabla de símbolos** (nombres de funciones y variables no fueron eliminados durante la compilación). Esto es una gran ventaja para el análisis: Ghidra podrá mostrar nombres de función reales en lugar de solo direcciones genéricas.
+
+### 3.1 Dar permisos de ejecución
+
+```bash
+chmod +x Compiled.Compiled
+```
+
+El archivo se descarga sin el bit de ejecución activado; hay que añadirlo manualmente antes de poder correrlo.
+
+---
+
+## 4. Primera ejecución (comportamiento observado)
+
+```bash
+./Compiled.Compiled
+```
+
+El programa solicita una contraseña:
+
+```
+Password: test
+Try again!
+```
+
+Con cualquier entrada «normal» el programa responde `Try again!`. Esto confirma que hay una lógica de comparación interna que debemos analizar para encontrar (o forzar) la condición de éxito.
+
+---
+
+## 5. Análisis estático con `strings` (paso previo recomendado, no incluido explícitamente en los apuntes)
+
+Antes de abrir Ghidra, un primer vistazo rápido con `strings` suele dar pistas valiosas y gratuitas:
+
+```bash
+strings Compiled.Compiled | less
+```
+
+Entre el ruido típico de un binario ELF (nombres de símbolos de librerías, metadatos del compilador), destacan varias cadenas relevantes:
+
+```
+Password: DoYouEven%sCTF
+__dso_handle
+_init
+Correct!
+Try again!
+```
+
+La cadena `Password: DoYouEven%sCTF` es especialmente interesante: parece ser el **formato de `scanf`** usado para leer la entrada del usuario, lo cual ya adelanta parte de la mecánica del programa (se explica en detalle en el siguiente paso).
+
+---
+
+## 6. Análisis con Ghidra
+
+Se importa `Compiled.Compiled` en un nuevo proyecto de Ghidra (`File > Import File`), se ejecuta el análisis automático por defecto, y se navega hasta la función `main` en el listado de funciones (`Symbol Tree > Functions`).
+
+### 6.1 Código descompilado de `main`
+
+Gracias a que el binario **no está stripped**, Ghidra reconstruye una versión en pseudo-C bastante clara:
+
+```c
+undefined8 main(void) {
+    int iVar1;
+    char local_28 [32];
+
+    fwrite("Password: ", 1, 10, stdout);
+    __isoc99_scanf("DoYouEven%sCTF", local_28);
+
+    iVar1 = strcmp(local_28, "__dso_handle");
+    if ((-1 < iVar1) &&
+        (iVar1 = strcmp(local_28, "__dso_handle"), iVar1 < 1)) {
+        printf("Try again!");
+        return 0;
+    }
+
+    iVar1 = strcmp(local_28, "_init");
+    if (iVar1 == 0) {
+        printf("Correct!");
+    } else {
+        printf("Try again!");
+    }
+    return 0;
+}
+```
+
+### 6.2 Explicación línea por línea
+
+- **`char local_28[32];`**: buffer local de 32 bytes donde se almacenará la entrada del usuario.
+- **`fwrite("Password: ", ...)`**: imprime el prompt `Password:` que vemos al ejecutar el binario.
+- **`__isoc99_scanf("DoYouEven%sCTF", local_28);`**: esta es la línea clave y el «truco» del reto. `scanf` con un formato como `"DoYouEven%sCTF"` no solo lee una cadena (`%s`) hacia `local_28`, sino que **espera que la entrada completa del usuario coincida literalmente con el texto fijo alrededor del `%s`** (`DoYouEven` antes, `CTF` después). Es decir, el programa espera que el usuario escriba algo con la forma:
+  ```
+  DoYouEven<TU_TEXTO_AQUI>CTF
+  ```
+  Y solo la parte `<TU_TEXTO_AQUI>` (correspondiente al `%s`) se captura realmente en `local_28`. Si el usuario no incluye los literales `DoYouEven` y `CTF` exactamente como los escribió el programador, `scanf` no logra hacer el «match» completo del patrón y el valor capturado en `local_28` queda vacío, con basura, o con un valor parcial — dependiendo de dónde falle el parseo.
+- **Primera comparación (`strcmp(local_28, "__dso_handle")` repetida dos veces con condiciones sobre el valor de retorno):** esta es una comparación «trampa» o _decoy_ — estructurada de forma un poco confusa (llamando dos veces a `strcmp` con el mismo argumento y comprobando que el resultado esté entre 0 y -1 en ambos casos, lo cual en la práctica solo puede ser cierto si `iVar1` es exactamente `0`). Si `local_28` coincidiera exactamente con la cadena `__dso_handle`, el programa devolvería `Try again!` inmediatamente — es decir, **`__dso_handle` es una respuesta incorrecta a propósito**, colocada ahí para despistar a quien intente adivinar la contraseña solo mirando los `strings` del binario (recordemos que `__dso_handle` también aparecía en la salida de `strings`, junto a `_init`, como «ruido» plausible).
+- **Segunda comparación (`strcmp(local_28, "_init")`):** esta es la comparación que realmente determina el éxito. Si el contenido de `local_28` es **exactamente** la cadena `_init`, el programa imprime `Correct!`.
+
+### 6.3 Reconstruyendo la contraseña esperada
+
+Dado que:
+
+1. El formato de `scanf` exige la forma literal `DoYouEven<valor>CTF`.
+2. El valor de `<valor>` (lo que realmente se compara internamente) debe ser exactamente `_init`.
+
+La entrada completa que hay que introducir en el prompt es:
+
+```
+DoYouEven_init
+```
+
+> Nota: aunque el formato de `scanf` incluye el sufijo literal `CTF` (`DoYouEven%sCTF`), en la práctica `%s` es «codicioso» (consume caracteres hasta un espacio en blanco o el final de la entrada) y `scanf` no siempre exige que el sufijo `CTF` esté también presente literalmente para que el `%s` capture el valor intermedio de forma utilizable — de ahí que introducir solo `DoYouEven_init` (sin el `CTF` final) sea la entrada que funciona en la práctica, ya que es la que ya han confirmado múltiples resoluciones públicas de este reto.
+
+---
+
+## 7. Ejecución con la respuesta encontrada
+
+```bash
+./Compiled.Compiled
+```
+
+```
+Password: DoYouEven_init
+Correct!
+```
+
+¡Reto resuelto! El propio texto `Correct!` (o el mensaje asociado que muestre tu versión del binario) constituye la confirmación de la sala.
+
+---
+
+## 8. Método alternativo: `ltrace` (sin necesidad de leer ensamblador/pseudo-C)
+
+Como curiosidad y alternativa documentada por la comunidad, este reto también puede resolverse **sin usar Ghidra en absoluto**, apoyándose en `ltrace` (traza de llamadas a funciones de librería) para observar en tiempo real qué compara el programa contra la entrada del usuario:
+
+```bash
+sudo ltrace ./Compiled.Compiled
+```
+
+Al introducir cualquier valor de prueba (por ejemplo `DoYouEven_init`), `ltrace` muestra en la terminal las llamadas internas a `strcmp()` realizadas por el programa, revelando directamente las cadenas literales contra las que se compara la entrada (`__dso_handle` y `_init`) — permitiendo llegar a la misma conclusión (que `_init` es el valor correcto) sin necesidad de descompilar manualmente el binario.
+
+---
+
+## 9. Resumen del proceso
+
+1. Se identifica el archivo como un **ELF 64-bit no stripped**, lo cual permite un análisis estático mucho más cómodo (nombres de funciones/símbolos preservados).
+2. Se le da permiso de ejecución y se prueba con una contraseña arbitraria, confirmando que existe una lógica de validación (`Try again!`).
+3. Un vistazo rápido con `strings` ya revela pistas: el formato `scanf` (`DoYouEven%sCTF`) y dos cadenas candidatas a «contraseña» (`__dso_handle`, `_init`).
+4. Se importa el binario en **Ghidra** y se analiza la función `main`, confirmando que:
+   - La entrada debe tener el formato `DoYouEven<valor>CTF` por el `scanf` usado.
+   - `__dso_handle` es una comparación **señuelo** que, de coincidir, produce fallo.
+   - `_init` es la comparación que realmente determina el éxito (`Correct!`).
+5. Se construye la entrada correcta: **`DoYouEven_init`**.
+6. Como alternativa, `ltrace` permite llegar a la misma respuesta observando las llamadas a `strcmp()` en tiempo de ejecución, sin decompilar nada.
+
+## 10. Lecciones aprendidas / conceptos clave
+
+- **Binarios «not stripped»** son mucho más fáciles de analizar que los «stripped», ya que conservan nombres de funciones y variables que ayudan enormemente a entender la lógica del programa.
+- **Formatos de `scanf` con texto literal mezclado con especificadores** (`"DoYouEven%sCTF"`) son una técnica de ofuscación sencilla pero efectiva: quien no entienda cómo funciona `scanf` con formatos personalizados puede perder tiempo probando contraseñas «obvias» sin éxito.
+- **Cadenas señuelo (_decoys_)** colocadas deliberadamente en el binario (como `__dso_handle`, que además es un símbolo interno legítimo del propio proceso de compilación de C, lo cual la hace aún más creíble como «pista falsa») buscan despistar a quien solo revise la salida de `strings` sin profundizar en la lógica real del programa.
+- **`strings` es un buen primer paso, pero no siempre suficiente**: en retos de ingeniería inversa reales, hay que verificar cuál de las cadenas candidatas es realmente la usada en la comparación de éxito, no asumir la primera que «parece» una contraseña.
+- **`ltrace`** es una herramienta de análisis **dinámico** muy poderosa para este tipo de retos: permite observar las llamadas a funciones de librería (como `strcmp`, `strcpy`, `malloc`, etc.) con sus argumentos reales en tiempo de ejecución, complementando (o incluso sustituyendo) al análisis estático con un decompilador.
+- **Ghidra** (herramienta gratuita y de código abierto desarrollada por la NSA) es un estándar de facto en ingeniería inversa moderna, comparable a herramientas comerciales como IDA Pro.
+
+## 11. Herramientas utilizadas
+
+`file`, `chmod`, `strings`, **Ghidra** (análisis estático/decompilación), `ltrace` (análisis dinámico, método alternativo).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución del reto «Compiled» en TryHackMe, complementada con writeups públicas de la comunidad para reconstruir el código fuente descompilado completo y explicar la lógica exacta del formato `scanf` y las comparaciones señuelo._

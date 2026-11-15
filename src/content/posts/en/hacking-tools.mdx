@@ -1,0 +1,210 @@
+---
+title: 'Hacking tools'
+description: 'The tools I reach for most in CTFs and pentesting, what each one solves and the syntax you actually end up needing.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tooling
+---
+
+> A list of already-installed tools, organised by category, along with the exact install command used. Additional recommendations (marked with ⭐) that complement the current arsenal well are included, grouped into the same categories so it is easy to see what is missing.
+
+---
+
+## 🔄 0. System maintenance
+
+```bash
+# Keep Kali up to date — run regularly, especially before a long CTF session
+sudo apt update && sudo apt upgrade -y
+```
+
+⭐ **Recommended to add:**
+
+```bash
+# Periodic cleanup of orphan packages/cache, keeps the VM from filling up with junk
+sudo apt autoremove -y && sudo apt autoclean
+```
+
+---
+
+## 📚 1. Wordlists and dictionaries
+
+| Tool            | Install                     | Use                                                                                                                                         |
+| --------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SecLists** ✅ | `sudo apt install seclists` | The most complete collection of wordlists (directories, subdomains, passwords, fuzzing payloads, etc.). Installs to `/usr/share/seclists/`. |
+
+⭐ **Recommended to add:**
+
+| Tool                     | Install                                           | Why                                                                                                                                                                          |
+| ------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CeWL**                 | `sudo apt install cewl`                           | Generates custom wordlists from a website’s text content — very useful when the target has passwords/users based on its own content (employee names, internal jargon, etc.). |
+| **crunch**               | `sudo apt install crunch`                         | Generates tailored wordlists with specific patterns (length, charset, known prefixes/suffixes) when `rockyou.txt` is not enough.                                             |
+| **rockyou.txt** (verify) | `sudo gunzip /usr/share/wordlists/rockyou.txt.gz` | Comes preinstalled compressed in Kali; confirm you have it decompressed, since it is used constantly.                                                                        |
+
+---
+
+## ☁️ 2. Cloud / Remote services
+
+| Tool           | Install                   | Use                                                                                                                              |
+| -------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| **AWS CLI** ✅ | `sudo apt install awscli` | Interact with AWS services (misconfigured S3 buckets, IAM, EC2 metadata, etc.) — increasingly relevant on cloud-themed machines. |
+
+⭐ **Recommended to add:**
+
+| Tool                    | Install                                                   | Why                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **aws-consoler / Pacu** | `pip3 install pacu --break-system-packages`               | Post-compromise AWS exploitation framework (similar to Metasploit but for AWS). Useful when more cloud-focused challenges start appearing.  |
+| **s3scanner**           | `pip3 install s3scanner --break-system-packages`          | Enumerates and checks permissions of public S3 buckets — a very common vulnerability pattern (open, listable buckets with sensitive files). |
+| **Azure CLI**           | `curl -sL https://aka.ms/InstallAzureCLIDeb \| sudo bash` | The AWS CLI equivalent for Azure, for when machines from that cloud start showing up.                                                       |
+
+---
+
+## 🗄️ 3. NFS / Network file systems
+
+| Tool                    | Install                            | Use                                                                                                                                                                     |
+| ----------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **libnfsidmap-dev** ✅  | `sudo apt install libnfsidmap-dev` | Development library for NFSv4 identity mapping (`idmapd`); useful to compile NFS-related tools or debug UID/GID mapping problems like those seen on the HiJack machine. |
+| **nfs-common** (verify) | `sudo apt install nfs-common`      | Base package providing `showmount`, `mount.nfs`, etc. — probably already present as a dependency, but confirm it if `showmount` is unavailable.                         |
+
+⭐ **Recommended to add:**
+
+| Tool         | Install                                           | Why                                                                                                                                                                                                        |
+| ------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **nfsshell** | `git clone https://github.com/NetDirect/nfsshell` | Alternative NFS client that lets you manipulate the request’s UID/GID directly **without creating real local users** (the `fakeuser` trick used in HiJack, but faster and without touching `/etc/passwd`). |
+
+---
+
+## 🔓 4. Hash identification and cracking
+
+| Tool                           | Install                                               | Use                                                                                                                    |
+| ------------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **hash-identifier** ✅         | `sudo apt install hash-identifier`                    | Identifies the hash type from its format/length.                                                                       |
+| **name-that-hash** ✅          | `pip3 install name-that-hash --break-system-packages` | Modern successor to `hash-identifier`/`hashid`, more accurate and with more supported algorithms; typical alias `nth`. |
+| **Hash-Analyzer** (website) ✅ | —                                                     | Online hash-identification tool.                                                                                       |
+
+⭐ **Recommended to add:**
+
+| Tool                                         | Install                          | Why                                                                                                                         |
+| -------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **John the Ripper** (verify)                 | `sudo apt install john`          | Should already be installed (used constantly in the write-ups via `zip2john`, `ssh2john`, etc.) — confirm it is up to date. |
+| **Hashcat** (verify)                         | `sudo apt install hashcat`       | Same — used on several machines; confirm the version and that it detects your GPU if you have one (`hashcat -I`).           |
+| **hashcat-utils**                            | `sudo apt install hashcat-utils` | Complementary Hashcat utilities (wordlist combiners, rule generators, etc.).                                                |
+| **CrackStation** / **Hashes.com** (websites) | —                                | Online precomputed-hash databases (unsalted hashes only) — already used in the write-ups, worth bookmarking.                |
+| **stegseek**                                 | `sudo apt install stegseek`      | Ultra-fast version of `stegcracker`, already mentioned in earlier write-ups — install it if you do not have it yet.         |
+
+---
+
+## 🎯 5. Active Directory / Windows exploitation
+
+| Tool            | Install                                                                                                         | Use                                                                                                                                                                   |
+| --------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Impacket** ✅ | `git clone https://github.com/fortra/impacket.git` (current official repo, after the migration from SecureAuth) | Python script suite for Windows/AD protocols (SMB, Kerberos, WMI, DCOM). Includes `secretsdump.py`, `psexec.py`, `GetUserSPNs.py`, `smbclient.py`, among many others. |
+
+⭐ **Recommended to add (for more Active Directory machines):**
+
+| Tool                        | Install                                                         | Why                                                                                                                                                          |
+| --------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **BloodHound + SharpHound** | `sudo apt install bloodhound`                                   | Maps privilege relationships in Active Directory and visualises attack paths (user → group → object → Domain Admin). The de-facto standard in AD pentesting. |
+| **CrackMapExec / NetExec**  | `pipx install netexec` (CME is deprecated in favour of NetExec) | A “Swiss army knife” to validate credentials and run commands against Windows/AD networks at scale (SMB, WinRM, MSSQL, LDAP).                                |
+| **Evil-WinRM**              | `gem install evil-winrm`                                        | Interactive shell over WinRM for Windows machines — the SSH equivalent for Windows Remote Management, widely used once you have valid credentials.           |
+| **Responder**               | `sudo apt install responder`                                    | Captures NTLM hashes on local networks by exploiting LLMNR/NBT-NS poisoning — a classic in internal network assessments.                                     |
+| **kerbrute**                | `go install github.com/ropnop/kerbrute@latest`                  | User enumeration and password brute force against Kerberos, much quieter than other methods.                                                                 |
+
+---
+
+## 📦 6. Manually downloaded tools (post-exploitation / Windows)
+
+| Tool                                           | Source                                                                    | Use                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **nc64.exe** ✅                                | [int0x33/nc.exe](https://github.com/int0x33/nc.exe)                       | Netcat compiled for Windows — essential for reverse/bind shells on compromised Windows machines, since it is not preinstalled. |
+| **winPEASx64.exe** ✅                          | [PEASS-ng releases](https://github.com/carlospolop/PEASS-ng/releases)     | Automatic enumeration script for Windows privilege-escalation vectors (the `linpeas.sh` equivalent).                           |
+| **“TheGoodHacker” / hackerpwm environment** ✅ | [thegoodhackertv/hackerpwm](https://github.com/thegoodhackertv/hackerpwm) | A personal working environment/template for pentesting.                                                                        |
+
+⭐ **Recommended to add to this same portable-tools folder:**
+
+| Tool                                   | Source                                                                                                                                      | Why                                                                                                                                                                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **linpeas.sh**                         | [PEASS-ng releases](https://github.com/carlospolop/PEASS-ng/releases)                                                                       | The Linux equivalent of winPEAS — already mentioned in the cheat sheet, but confirm you have the latest version downloaded locally (useful to serve via `python3 -m http.server` when the victim machine has no internet access).                                     |
+| **LinEnum.sh**                         | [rebootuser/LinEnum](https://github.com/rebootuser/LinEnum)                                                                                 | A lighter/faster alternative to linpeas when you only need a basic check.                                                                                                                                                                                             |
+| **pspy64**                             | [DominicBreuker/pspy](https://github.com/DominicBreuker/pspy)                                                                               | Monitors processes on Linux **without root privileges**, ideal for detecting cronjobs/scripts running as root in real time (the same vulnerability pattern seen in Archangel, Easy Peasy and Fowsniff CTF, but automated instead of reading `/etc/crontab` manually). |
+| **mimikatz**                           | [gentilkiwi/mimikatz](https://github.com/gentilkiwi/mimikatz)                                                                               | Extracts credentials from memory on Windows (NTLM hashes, Kerberos tickets, plaintext passwords from LSASS) — a Windows post-exploitation standard.                                                                                                                   |
+| **PowerUp.ps1** / **PrivescCheck.ps1** | [PowerShellMafia/PowerSploit](https://github.com/PowerShellMafia/PowerSploit) / [itm4n/PrivescCheck](https://github.com/itm4n/PrivescCheck) | winPEAS equivalents for Windows privilege-escalation enumeration via PowerShell.                                                                                                                                                                                      |
+| **Chisel**                             | [jpillora/chisel releases](https://github.com/jpillora/chisel/releases)                                                                     | A _pivoting_/TCP-over-HTTP tunnelling tool — widely used to forward internal ports (as done manually with `ssh -L` in VulnNet: Internal) when SSH is not available as a tunnel vector.                                                                                |
+| **ligolo-ng**                          | [nicocha30/ligolo-ng](https://github.com/nicocha30/ligolo-ng)                                                                               | A modern alternative to Chisel for pivoting, with a virtual network interface — increasingly popular on HTB/THM for multi-hop internal networks.                                                                                                                      |
+
+---
+
+## ☕ 7. Development environments / dependencies
+
+| Tool              | Install                              | Use                                                                                                                        |
+| ----------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| **OpenJDK 11** ✅ | `sudo apt install openjdk-11-jdk -y` | A Java requirement for tools like Maven, BloodHound (old), Burp Suite, or Java exploits.                                   |
+| **Maven** ✅      | `sudo apt-get install maven`         | A build/dependency-management tool for Java projects — useful to compile exploits or tools distributed as a Maven project. |
+
+⭐ **Recommended to add:**
+
+| Tool            | Install                           | Why                                                                                                                                                                                                                                |
+| --------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **pipx**        | `sudo apt install pipx`           | Installs Python tools in isolated environments automatically, avoiding dependency conflicts between the dozens of GitHub scripts you tend to clone (`pip install --break-system-packages` works, but `pipx` is cleaner long term). |
+| **Go (golang)** | `sudo apt install golang-go`      | Many modern recon tools (`ffuf`, `subfinder`, `kerbrute`, `naabu`, `httpx`) are written in Go and installed via `go install`; having it ready avoids friction when trying new community tools.                                     |
+| **.NET SDK**    | `sudo apt install dotnet-sdk-8.0` | Needed to compile/run some offensive C# tools aimed at Windows/AD (e.g. Rubeus, SharpHound in its .NET variant).                                                                                                                   |
+
+---
+
+## 📡 8. Network / SMB enumeration
+
+| Tool             | Install                      | Use                                                                                           |
+| ---------------- | ---------------------------- | --------------------------------------------------------------------------------------------- |
+| **smbclient** ✅ | `sudo apt install smbclient` | A command-line client to explore/interact with SMB shares — used constantly in the write-ups. |
+
+⭐ **Recommended to add (if not already in Kali by default):**
+
+| Tool                   | Install                                            | Why                                                                                                                                       |
+| ---------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **enum4linux-ng**      | `git clone https://github.com/cddmp/enum4linux-ng` | A modern Python rewrite of `enum4linux`, with cleaner output (JSON/YAML) and better maintained than the original Perl version.            |
+| **smbmap**             | `sudo apt install smbmap`                          | Shows SMB share permissions more clearly than `smbclient -L` (what you can read/write on each share), complementing what you already use. |
+| **rpcclient** (verify) | `sudo apt install samba-common-bin`                | An RPC client for additional Windows domain/user enumeration via SMB, complementary to `enum4linux`.                                      |
+
+---
+
+## 🧭 9. Other key categories (gaps detected in the current arsenal)
+
+Among the machines documented here, these are tools **used directly in the write-ups** that did not appear in the install list — worth confirming you have them, since they probably came with Kali by default, but it is best to verify explicitly:
+
+```bash
+# Verify you have them (all usually come preinstalled in Kali, but confirm)
+which nmap gobuster ffuf hydra sqlmap wpscan steghide binwalk exiftool \
+      ltrace strace gdb objdump checksec radare2 rlwrap redis-tools \
+      nfs-common rsync netcat-traditional ssh sshpass base64 openssl xxd
+```
+
+If any are missing:
+
+```bash
+sudo apt install nmap gobuster ffuf hydra sqlmap wpscan steghide binwalk exiftool \
+                  ltrace strace gdb binutils checksec radare2 rlwrap redis-tools \
+                  nfs-common rsync netcat-traditional openssh-client sshpass
+```
+
+⭐ **Additional high-value tools, not yet mentioned, highly recommended for the current workflow:**
+
+| Tool                              | Install                                                                              | Why (connected to the write-ups)                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **feroxbuster**                   | `sudo apt install feroxbuster`                                                       | An alternative to Gobuster/ffuf for directory fuzzing, written in Rust — very fast with automatic recursion, ideal for the web-enumeration phases repeated on almost every machine. |
+| **wfuzz** (verify)                | `sudo apt install wfuzz`                                                             | Used in HiJack — confirm it is formally installed and not just incidentally available.                                                                                              |
+| **Burp Suite Community** (verify) | Comes preinstalled in Kali                                                           | Review cookies/sessions (as in HiJack) much more comfortably than editing cookies manually from DevTools.                                                                           |
+| **CyberChef (offline)**           | `git clone https://github.com/gchq/CyberChef` and build, or download the release     | A local version of CyberChef for when you have no internet access or want to avoid pasting a client’s sensitive data into an online service.                                        |
+| **stegcracker** (verify)          | `sudo apt install stegcracker` or `pip3 install stegcracker --break-system-packages` | Used in Lian_Yu — confirm it is installed alongside `stegseek`.                                                                                                                     |
+| **base58** (Python library)       | `pip3 install base58 --break-system-packages`                                        | Used in Lian_Yu to decode Base58 — install it formally if you have not already.                                                                                                     |
+| **base62** (Python library)       | `pip3 install pybase62 --break-system-packages`                                      | Used in Easy Peasy to decode Base62.                                                                                                                                                |
+| **searchsploit** (verify)         | `sudo apt install exploitdb`                                                         | Used in Simple CTF and Source — worth confirming the local Exploit-DB copy is up to date (`searchsploit -u`).                                                                       |
+| **msfconsole** (verify)           | `sudo apt install metasploit-framework`                                              | Used in Source — worth confirming the Metasploit database is initialised (`sudo msfdb init`).                                                                                       |
+
+---
+
+## 📝 Final notes
+
+- Run `sudo apt update && sudo apt upgrade -y` regularly (ideally before each CTF session), and complement it with `sudo apt autoremove -y` now and then.
+- For tools installed via `pip3 --break-system-packages`, consider gradually migrating to `pipx` to avoid breaking the system Python as you accumulate more third-party scripts.
+- Keep a central folder (e.g. `~/tools/`) for all manually downloaded binaries (winPEAS, linpeas, nc64.exe, mimikatz, chisel, etc.), and serve them with `python3 -m http.server` when needed inside a compromised machine — so you do not depend on each machine having internet access.
+- `searchsploit -u` and `sudo msfdb init` / updating Metasploit are worth doing periodically, since both exploit databases update constantly.

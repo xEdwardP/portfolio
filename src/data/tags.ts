@@ -11,6 +11,13 @@ export const tags = {
   typescript: { es: 'TypeScript', en: 'TypeScript' },
   astro: { es: 'Astro', en: 'Astro' },
   testing: { es: 'Pruebas', en: 'Testing' },
+  cybersecurity: { es: 'Ciberseguridad', en: 'Cybersecurity' },
+  tryhackme: { es: 'TryHackMe', en: 'TryHackMe' },
+  web: { es: 'Seguridad web', en: 'Web security' },
+  privesc: { es: 'Escalada de privilegios', en: 'Privilege escalation' },
+  cryptography: { es: 'Criptografía', en: 'Cryptography' },
+  reversing: { es: 'Ingeniería inversa', en: 'Reverse engineering' },
+  tooling: { es: 'Herramientas', en: 'Tooling' },
 } as const satisfies Record<string, Record<Locale, string>>;
 
 export type TagId = keyof typeof tags;

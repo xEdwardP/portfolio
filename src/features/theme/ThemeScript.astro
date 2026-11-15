@@ -4,14 +4,42 @@
 
 <script is:inline>
   (() => {
-    const stored = localStorage.getItem('theme');
+    const read = () => {
+      try {
+        return localStorage.getItem('theme');
+      } catch {
+        return null;
+      }
+    };
+
+    const stored = read();
+
+    const root = document.documentElement;
     const theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.classList.toggle(
+    root.dataset.theme = theme;
+    root.classList.toggle(
       'dark',
       theme === 'dark' || (theme === 'system' && prefersDark)
     );
+
+    const syncThemeColor = () => {
+      const background = getComputedStyle(root).getPropertyValue('--bg').trim();
+      if (!background) return;
+
+      let meta = document.querySelector('meta[name="theme-color"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'theme-color');
+        document.head.append(meta);
+      }
+      meta.setAttribute('content', background);
+    };
+
+    if (document.readyState === 'complete') syncThemeColor();
+    else window.addEventListener('load', syncThemeColor, { once: true });
+
+    new MutationObserver(syncThemeColor).observe(root, { attributeFilter: ['class'] });
   })();
 </script>

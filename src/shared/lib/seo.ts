@@ -15,6 +15,6 @@ export function personSchema(locale: Locale, site: URL | string) {
       '@type': 'CollegeOrUniversity',
       name: education[0].institution,
     },
-    knowsAbout: ['Laravel', 'ASP.NET Core', 'TypeScript', 'Flutter'],
+    knowsAbout: ['Laravel', 'ASP.NET Core', 'Node.js', 'React', 'Flutter'],
   };
 }

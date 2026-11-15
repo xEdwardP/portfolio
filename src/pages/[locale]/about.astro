@@ -7,8 +7,15 @@ import Button from '@/shared/components/ui/Button.astro';
 import Card from '@/shared/components/ui/Card.astro';
 import Section from '@/shared/components/ui/Section.astro';
 import { countByEcosystem, getProjects } from '@/features/projects/queries';
-import { ecosystems, education, profile } from '@/data/profile';
-import { practices, skills, softSkills, spokenLanguages, toolbox } from '@/data/skills';
+import { ecosystems, education, experience, profile } from '@/data/profile';
+import {
+  additionalSkills,
+  practices,
+  skills,
+  softSkills,
+  spokenLanguages,
+  toolbox,
+} from '@/data/skills';
 import { locales, type Locale } from '@/i18n/config';
 import { localizePath, useTranslations } from '@/i18n/utils';
 import portrait from '@/assets/edward-pineda.png';
@@ -22,6 +29,8 @@ const t = useTranslations(locale);
 
 const counts = countByEcosystem(await getProjects(locale));
 const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
+const projectsLabel = (count: number) =>
+  `${count} ${t(count === 1 ? 'home.projectsOne' : 'home.projectsOther')}`;
 ---
 
 <BaseLayout title={t('nav.about')} description={t('about.lead')}>
@@ -61,6 +70,37 @@ const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
     <p class="mt-3 max-w-2xl leading-relaxed text-muted">{t('about.approachBody')}</p>
   </Section>
 
+  <Section width="wide" title={t('about.experience')}>
+    <ul class="grid gap-4">
+      {
+        experience.map((entry) => (
+          <li>
+            <Card>
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+                <div class="min-w-0">
+                  <h3 class="font-display text-lg font-semibold text-balance">
+                    {entry.role[locale]}
+                  </h3>
+                  <p class="mt-1 text-sm text-muted" translate="no">
+                    {entry.company}
+                  </p>
+                </div>
+                <p class="shrink-0 font-mono text-xs text-muted">
+                  {entry.period[locale]}
+                </p>
+              </div>
+              <ul class="mt-4 max-w-3xl list-disc space-y-2 pl-5 text-sm leading-relaxed text-muted">
+                {entry.highlights[locale].map((highlight) => (
+                  <li>{highlight}</li>
+                ))}
+              </ul>
+            </Card>
+          </li>
+        ))
+      }
+    </ul>
+  </Section>
+
   <Section width="wide" title={t('about.skills')}>
     <p class="-mt-3 mb-8 text-muted">{t('about.skillsLead')}</p>
 
@@ -75,15 +115,34 @@ const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
                   class:list={['size-6 shrink-0', meta[group.ecosystem].color]}
                   aria-hidden="true"
                 />
-                <h3 class="font-display font-semibold">{meta[group.ecosystem].label}</h3>
+                <h3 class="font-display font-semibold" translate="no">
+                  {meta[group.ecosystem].label}
+                </h3>
                 <span class="ml-auto font-mono text-xs text-muted">
-                  {counts[group.ecosystem] ?? 0} {t('about.projectsCount')}
+                  {projectsLabel(counts[group.ecosystem] ?? 0)}
                 </span>
               </div>
 
               <p class="text-sm text-muted">{group.headline[locale]}</p>
 
-              <ul class="mt-auto flex flex-wrap gap-1.5">
+              <ul class="mt-auto flex flex-wrap gap-1.5" translate="no">
+                {group.items.map((item) => (
+                  <li>
+                    <Badge>{item}</Badge>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </li>
+        ))
+      }
+      {
+        additionalSkills.map((group) => (
+          <li class="contents">
+            <Card class="flex flex-col gap-4">
+              <h3 class="font-display font-semibold">{t(group.label)}</h3>
+              <p class="text-sm text-muted">{group.headline[locale]}</p>
+              <ul class="mt-auto flex flex-wrap gap-1.5" translate="no">
                 {group.items.map((item) => (
                   <li>
                     <Badge>{item}</Badge>
@@ -107,7 +166,7 @@ const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
             <h3 class="font-mono text-xs tracking-wide text-muted uppercase">
               {t(group.label)}
             </h3>
-            <ul class="mt-3 flex flex-wrap gap-1.5">
+            <ul class="mt-3 flex flex-wrap gap-1.5" translate="no">
               {group.items.map((item) => (
                 <li>
                   <Badge>{item}</Badge>

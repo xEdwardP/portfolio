@@ -1,116 +1,117 @@
 ---
 title: Macaw
-summary: 'A university peer-tutoring marketplace where money never moves directly between users: credits are frozen in escrow and only released once the session is confirmed.'
+summary: 'An institutional peer-tutoring platform spanning multiple campuses, with paid and scholarship tutors, bookings, and academic and financial tracking.'
 role: 'Full application: API and SPA'
 tier: case-study
 ecosystem: node
 category: web
 stack:
   - React 19
-  - Express 5
+  - Express
   - Prisma
   - PostgreSQL 18
   - Zustand
   - TanStack Query
-  - Tailwind CSS 4
+  - Tailwind CSS
   - OpenAI
 year: 2026
 status: active
-featured: false
-order: 2
+featured: true
+order: 1
+liveUrl: https://macaw-mu.vercel.app/
 repos:
   - label: Repository
     url: https://github.com/xEdwardP/Macaw
 highlights:
-  - Escrowed credits released only on confirmation
-  - Six chained validations before a booking is accepted
-  - AI tutor recommendations and review summaries
+  - Tutor approvals and permissions scoped by role and campus
+  - Paid tutoring with escrow and scholarship tutoring with hour tracking
+  - Google Calendar/Meet, agreed rescheduling and AI recommendations
 ---
 
 ## The problem
 
-A peer-tutoring marketplace has a problem a shop does not: both parties can lie. The tutor can
-charge without teaching; the student can take the lesson and claim it never happened. And
-neither trusts the other enough to pay up front.
+Coordinating peer tutoring across an institution with multiple campuses takes more than
+connecting students with tutors. Each campus needs to manage its students, approve who can
+teach and respond to support requests, while the Director maintains a shared academic
+catalog and oversees operations.
 
-On top of that there is scheduling: two people, different availabilities, and nobody wants to
-discover the clash after booking.
+Macaw brings those workflows together in a platform that distinguishes **paid tutoring**
+from **scholarship tutoring**. Paid sessions require financial tracking; scholarship
+sessions record hours without charging students.
 
 ## Architecture decisions
 
-### Money never moves between users
+### Permissions by role and campus
 
-No student ever pays a tutor. The student buys **internal credits** with PayPal, and from
-then on everything happens inside the system:
+The application has five roles: student, paid tutor, scholarship tutor, campus coordinator
+and Director. The Director manages campuses, coordinators and the global catalog of
+faculties and subjects. Each coordinator manages their campus's students, invitations,
+subsidies, tutor approvals and support requests.
 
-```
-1. Wallet top-up with PayPal
-2. Booking         → credits move from `balance` to `frozen`
-3. The tutor delivers the session and marks it delivered
-4. The student confirms
-     → 90% to the tutor's balance
-     → 10% to the platform wallet
-5. The tutor requests a withdrawal; an admin approves and pays out via PayPal
-```
+Registration requires an institutional email domain, an active campus and email
+verification. Tutor approval is a separate step: teaching at another campus requires a
+verified membership there. Subjects and bookings are validated against the student's campus.
+Revoking an approval prevents new bookings while preserving existing session records.
 
-Escrow solves the mutual distrust: the student is not paying a stranger, they are paying the
-system; the tutor knows the money is already set aside before teaching.
+### Separate accounting for money and scholarship hours
 
-The detail that keeps the mechanism from jamming: **if the student does nothing, step 4
-happens automatically after 24 hours** through a scheduled job. Without it, a distracted or
-bad-faith student could freeze a tutor's earnings forever.
+Booking a paid session reserves funds in escrow. Student confirmation, cancellations and
+disputes settle or refund funds through an **auditable ledger**. Manual fund and subsidy
+operations require an idempotency key to prevent duplicates.
 
-When there is disagreement the session moves to `disputed` and an administrator resolves it.
-The state of the money always corresponds to an explicit state of the session.
+Tutors can only mark sessions as delivered after they end. A worker processes automatic
+confirmation and pending events. Scholarship sessions award hours to the corresponding
+program without charges or withdrawals.
 
-### Six validations, in order, before booking
+The active currency is USD and **PayPal operates exclusively in sandbox**. Live payments
+remain blocked, including in production installations.
 
-Booking checks in sequence:
+### Shared scheduling and agreed rescheduling
 
-1. The tutor exists and has availability on that weekday
-2. The requested range fits **entirely** inside one availability block
-3. The date is in the future, evaluated in `America/Tegucigalpa`
-4. The tutor has no overlapping session
-5. The student has no overlapping session
-6. The student's balance covers the price
+Tutors configure weekly availability, date-specific absences and their **Google
+Calendar/Meet** connection. Absences block new time slots across all their campuses without
+changing the weekly schedule or automatically cancelling existing bookings.
 
-If all pass, **a single transaction** creates the session, moves the amount from `balance` to
-`frozen` and writes the ledger entry. There is no intermediate state where the session exists
-but the money was not set aside.
+Students and tutors can propose a new time; only the other party can accept it. The original
+time remains in effect until acceptance, when availability, absences, scheduling conflicts,
+campus approval, subject and session format are checked again. Duration, price, currency,
+commission and scholarship remain unchanged, without moving funds or awarding hours.
 
-Order matters: cheap checks run before expensive ones, and the timezone is explicit because a
-university operates in a specific zone, not in UTC.
+The worker updates the original Google Calendar event with retries, preserves the Meet link
+and discards reminders for previous times. The interface shows when synchronization is
+still pending.
 
-### Layers with strict responsibilities
+### Recommendations from eligible candidates
 
-The backend follows **module → routes → controller → service**. Routes declare the auth and
-role middleware; controllers only translate HTTP into service calls and shape the response;
-services hold all business logic and Prisma transactions.
+AI recommendations start with active, verified tutors who teach subjects at the student's
+campus and have bookable availability within the next 14 days. The provider receives
+subjects, ratings, rates, days and anonymous candidate codes, without names, emails or
+account identifiers. When the provider is not configured, recommendations use a fallback
+with valid tutors; review summaries require the provider.
 
-Every response uses the same envelope, success or not:
+When a search returns no results, students can request help. Their campus coordinator
+responds and may suggest an eligible tutor. The suggestion does not reserve time or move
+funds; the student decides whether to book. Only the requester and their campus coordinator
+can view the request history.
 
-```json
-{ "success": true, "message": "Success", "data": {} }
-```
+### Separate API and worker processes
 
-The client never has to guess the shape of what it receives.
+The frontend uses React 19, Vite, React Router, TanStack Query, Zustand and Tailwind CSS.
+The backend combines Node.js, Express, Prisma and PostgreSQL 18, with feature modules and
+shared components for security, auditing, events and accounting.
 
-### AI suggests, it does not decide
-
-Two uses of `gpt-4o-mini`, both scoped. **Recommendations** build the prompt from the
-student's career, quarter, GPA and last ten completed subjects, plus up to twenty active
-tutors, and ask for three with a short reason each; the JSON reply is parsed and **enriched
-with the real records** from the database. The **review summary** condenses the last twenty
-reviews into at most three sentences.
-
-In both cases the model ranks or summarises data that already exists. It does not invent
-tutors or set prices.
+Browser sessions use HttpOnly cookies, CSRF checks and permissions scoped by role and
+campus. Notifications persist in PostgreSQL and update through Socket.io. The worker
+coordinates tasks with PostgreSQL locks and processes account emails, reminders, automatic
+confirmations and pending events.
 
 ## Outcome
 
-Four roles with their own dashboards: student, tutor, university and administrator. The
-university manages faculties and subjects, and can top up an institutional balance to
-subsidise its students.
+A tutoring platform for a single institution with multiple campuses, with Spanish and
+English interfaces and error messages, plus light and dark themes. Each role has its own
+workflows, from finding tutors and booking sessions to managing scholarships, subsidies,
+disputes and withdrawals.
 
-Video calls run on Jitsi Meet, with the room generated at booking time, so the link exists
-before the session even starts.
+The Director has an operations dashboard for reviewing the worker, event queue, reminders
+and reconciliation. Integrations require configuration and validation in each installation;
+Google Calendar needs valid tutor authorization and an active worker to synchronize changes.

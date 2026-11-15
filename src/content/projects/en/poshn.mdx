@@ -1,0 +1,67 @@
+---
+title: PosHn
+summary: A desktop point-of-sale system for Honduras, under development with C# and .NET 10. Purchasing, branch inventory and business rules separated from the interface.
+role: Desktop application
+tier: case-study
+ecosystem: dotnet
+category: desktop
+stack:
+  - C#
+  - .NET 10
+  - WPF
+  - Entity Framework Core
+  - SQL Server
+  - xUnit
+year: 2026
+status: active
+featured: false
+order: 13
+repos:
+  - label: Repository
+    url: https://github.com/xEdwardP/PosHn
+highlights:
+  - Four-layer architecture with independent domain rules
+  - Purchases and inventory movements saved in a single transaction
+  - Branch inventory and weighted average cost calculation
+---
+
+## The problem
+
+A point-of-sale system needs to keep purchases, stock and amounts consistent while adapting
+to local retail needs. An incomplete operation can leave a purchase recorded without its
+corresponding inventory entry.
+
+PosHn is a desktop system for Honduras, **under development**, building that foundation
+with business rules separated from the interface.
+
+## Architecture decisions
+
+### Four layers with distinct responsibilities
+
+The domain holds entities, value objects and pure business rules. The application layer
+coordinates use cases, validations and contracts. Infrastructure implements persistence
+with Entity Framework Core and SQL Server, while presentation contains the WPF interface
+and dependency configuration.
+
+Dependencies point toward the domain. This allows calculations and validations to be
+tested without opening windows or depending on visual components.
+
+### Purchases and inventory as a single operation
+
+Purchase registration validates input, checks products and rejects duplicate invoice
+numbers for the same supplier. The purchase and its incoming stock movements are saved
+within a single transaction.
+
+Inventory tracks stock by branch, a movement ledger and stock adjustments. Incoming stock
+updates the weighted average cost; outgoing stock is validated against available quantities.
+
+### Testable rules
+
+Cost calculations, rounding and validations live in the domain. The project includes xUnit
+tests and uses dependency injection to connect use cases with their implementations.
+
+## Current status
+
+The implemented foundation includes purchasing, inventory, cash operations and rules for
+fiscal authorizations. Development continues in stages: the invoicing engine and sales
+screen are part of the planned work.

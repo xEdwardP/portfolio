@@ -1,0 +1,213 @@
+---
+title: 'Crack The Hash'
+description: 'Identificación de tipos de hash y cracking offline con Hashcat y John: diccionarios, reglas y hashes con salt explicados paso a paso.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - cryptography
+---
+
+**Dificultad:** Easy **Categoría:** Identificación de hashes, cracking offline (Hashcat/John), diccionarios, hashes con salt **Sala:** [https://tryhackme.com/room/crackthehash](https://tryhackme.com/room/crackthehash)
+
+## Descripción de la sala
+
+Sala centrada exclusivamente en **identificar y crackear hashes** de distintos algoritmos (MD5, SHA-1, SHA-256, MD4, Bcrypt, y variantes con _salt_ como SHA-512 Unix y HMAC-SHA1), usando tanto herramientas offline (`hashcat`, `john`) como servicios online de consulta (CrackStation, Hashes.com). No hay red ni máquina objetivo: todo el trabajo se hace sobre una lista de hashes proporcionada por la sala.
+
+> **Nota sobre placeholders:** esta sala no requiere IP objetivo. Los hashes mostrados son fijos (no cambian entre intentos, ya que provienen directamente del enunciado de la sala), así que se muestran literalmente. Se usa `hashN.txt` como nombre de archivo genérico para cada hash individual — puedes nombrarlos como prefieras, siempre que coincida con el nombre que uses en cada comando de `hashcat`.
+
+---
+
+## 1. Identificar el tipo de hash
+
+Antes de lanzar cualquier ataque de fuerza bruta o diccionario, es imprescindible **saber qué algoritmo generó el hash**, ya que cada uno requiere un modo distinto en `hashcat` (`-m`).
+
+```bash
+nano hashes.txt   # Pegar todos los hashes recibidos, uno por línea
+nth --file hashes.txt
+```
+
+- `nth` (**Name-That-Hash**): herramienta moderna de identificación de hashes (sucesora de `hash-identifier` y `hashid`, más precisa y con más algoritmos soportados). Analiza la longitud, el formato y los caracteres del hash para sugerir uno o varios algoritmos candidatos, junto con el modo correspondiente en Hashcat y el formato en John the Ripper cuando aplica.
+- Alternativas equivalentes si `nth` no está disponible: `hash-identifier`, `hashid -m hash.txt`, o simplemente comparar manualmente la longitud/prefijo del hash contra la [tabla de hashes de ejemplo de Hashcat](https://hashcat.net/wiki/doku.php?id=example_hashes).
+
+Reglas rápidas de identificación por longitud/prefijo (útiles para reconocer los tipos de esta sala a simple vista):
+
+| Longitud / Prefijo                 | Algoritmo probable       | Modo Hashcat                  |
+| ---------------------------------- | ------------------------ | ----------------------------- |
+| 32 caracteres hex                  | MD5 (o MD4, mismo largo) | `-m 0` (MD5) / `-m 900` (MD4) |
+| 40 caracteres hex                  | SHA-1                    | `-m 100`                      |
+| 64 caracteres hex                  | SHA-256                  | `-m 1400`                     |
+| Empieza con `$2a$`, `$2y$`, `$2b$` | Bcrypt                   | `-m 3200`                     |
+| Empieza con `$6$`                  | SHA-512crypt (Unix)      | `-m 1800`                     |
+| Empieza con `$1$`                  | MD5crypt (Unix)          | `-m 500`                      |
+
+---
+
+## 2. Nivel 1 — Hashes sin salt (algoritmos básicos)
+
+### Hash 1 — MD5
+
+```bash
+echo '48bb6e862e54f2a795ffc4e541caed4d' > hash1.txt
+hashcat -m 0 hash1.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 0 hash1.txt --show
+```
+
+- `-m 0`: modo MD5 en Hashcat.
+
+**Resultado: `easy`**
+
+### Hash 2 — SHA-1
+
+```bash
+echo 'CBFDAC6008F9CAB4083784CBD1874F76618D2A97' > hash2.txt
+hashcat -m 100 hash2.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 100 hash2.txt --show
+```
+
+- `-m 100`: modo SHA-1. (Como aclaración: Hashcat solo reconoce **4** variantes principales de «SHA algo» por defecto — SHA-1, SHA-256, SHA-384 y SHA-512 — así que si no se está seguro del tipo exacto, se puede ir probando cada modo hasta obtener resultado.)
+
+**Resultado: `password123`**
+
+### Hash 3 — SHA-256
+
+```bash
+echo "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b6303" > hash3.txt
+hashcat -m 1400 -a 0 hash3.txt /usr/share/wordlists/rockyou.txt
+hashcat -m 1400 hash3.txt --show
+```
+
+- `-m 1400`: modo SHA-256.
+- `-a 0`: modo de ataque **straight** (ataque de diccionario directo, probando cada palabra de la wordlist tal cual, sin mutaciones) — es el modo por defecto, pero es buena práctica indicarlo explícitamente.
+
+**Resultado: `letmein`**
+
+### Hash 4 — Bcrypt
+
+```bash
+echo '$2y$12$Dwt1BZj6pcyc3Dy1FWZ5ieeUznr71EeNkJkUlypTsgbX1H68wsRom' > hash4.txt
+hashcat -m 3200 -a 0 hash4.txt /usr/share/wordlists/rockyou.txt
+```
+
+- `-m 3200`: modo Bcrypt (Blowfish).
+- El prefijo `$2y$12$` indica: `$2y$` = variante de Bcrypt, `12` = _cost factor_ (número de rondas = 2¹² = 4096 iteraciones internas).
+
+> **Advertencia de rendimiento:** Bcrypt está diseñado deliberadamente para ser **lento** (a diferencia de MD5/SHA, que pueden calcularse a cientos de millones por segundo, Bcrypt limita el cálculo a unos pocos miles por segundo mediante _key stretching_). Esto significa que crackear un hash Bcrypt contra `rockyou.txt` completo puede tardar considerablemente más tiempo, e incluso puede generar mucho calor/carga en la GPU en equipos modestos. Si el proceso es demasiado lento, es válido (y muy común en las writeups de la comunidad) recurrir a un buscador online como [Hashes.com](https://hashes.com/) para verificar si el hash ya fue crackeado previamente por alguien más.
+
+**Resultado: `bleh`**
+
+### Hash 5 — MD4
+
+```bash
+echo '279412f945939ba78ce0758d3fd83daa' > hash5.txt
+hashcat -m 900 hash5.txt /usr/share/wordlists/rockyou.txt
+```
+
+- `-m 900`: modo MD4.
+
+En algunos casos este comando no encuentra el resultado directamente contra `rockyou.txt` (dependiendo de la versión/orden de la wordlist), por lo que conviene una alternativa online, como el descifrador de MD4 en [md5decrypt.net](https://md5decrypt.net/en/Md4/), o consultarlo directamente en CrackStation/Hashes.com.
+
+**Resultado: `Eternity22`**
+
+---
+
+## 3. Nivel 2 — Hashes con salt (mayor dificultad)
+
+En esta segunda parte de la sala se introducen hashes **salados** (_salted_), donde se añade un valor adicional (el _salt_) antes de calcular el hash, precisamente para que **no puedan buscarse en bases de datos online precalculadas** (rainbow tables / CrackStation) — obligando a un cracking offline dirigido.
+
+### Hash 6 — SHA-256 (sin salt, pero de mayor dificultad de identificación)
+
+```bash
+echo 'F09EDCB1FCEFC6DFB23DC3505A882655FF77375ED8AA2D1C13F640FCCC2D0C85' > hash6.txt
+hashcat -m 1400 hash6.txt /usr/share/wordlists/rockyou.txt
+```
+
+**Resultado: `paule`**
+
+### Hash 7 — SHA-512crypt (Unix), con salt explícito
+
+```
+Hash: $6$aReallyHardSalt$6WKUTqzq.UQQmrm0p/T7MPpMbGNnzXPMAXi4bJMl9be.cfi3/qxIf.hsGpS41BqMhSrHVXgMpdjS6xeKZAs02.
+Salt: aReallyHardSalt
+```
+
+```bash
+echo '$6$aReallyHardSalt$6WKUTqzq.UQQmrm0p/T7MPpMbGNnzXPMAXi4bJMl9be.cfi3/qxIf.hsGpS41BqMhSrHVXgMpdjS6xeKZAs02.' > hash7.txt
+hashcat -m 1800 hash7.txt /usr/share/wordlists/rockyou.txt
+```
+
+- `-m 1800`: modo SHA-512crypt (Unix) — el prefijo `$6$` es la marca estándar de este algoritmo en `/etc/shadow`.
+- El _salt_ (`aReallyHardSalt`) ya viene **embebido dentro del propio hash** (entre el segundo y tercer signo `$`), por lo que Hashcat lo extrae automáticamente sin necesidad de indicarlo por separado.
+
+**Resultado: `n63umy8lkf4i`**
+
+### Hash 8 (bonus) — SHA-1 con salt separado
+
+```
+Hash: e5d8870e5bdd26602cab8dbe07a942c8669e56d6
+Salt: tryhackme
+```
+
+A diferencia del hash anterior, aquí el _salt_ **no** viene embebido dentro del propio hash, sino que se entrega por separado. Para que Hashcat lo procese correctamente, hay que concatenarlo con el formato `hash:salt`:
+
+```bash
+echo 'e5d8870e5bdd26602cab8dbe07a942c8669e56d6:tryhackme' > hash8.txt
+hashcat -m 160 hash8.txt /usr/share/wordlists/rockyou.txt
+```
+
+- `-m 160`: modo **HMAC-SHA1** (con clave = salt) — **no** confundir con `-m 100` (SHA-1 sin salt) ni con `-m 20` (SHA-1 con salt simple concatenado de otra forma); usar el modo incorrecto no genera ningún error visible, simplemente Hashcat no encuentra coincidencia aunque la contraseña esté en la wordlist.
+
+**Resultado: `481616481616`**
+
+---
+
+## 4. Método alternativo con CrackStation (para hashes sin salt)
+
+Para los hashes del Nivel 1 (sin salt), en vez de usar `hashcat` localmente también es válido — y mucho más rápido — pegarlos directamente en [CrackStation](https://crackstation.net/), un servicio online que mantiene bases de datos precalculadas de miles de millones de hashes comunes:
+
+1. Copiar el hash tal cual.
+2. Pegarlo en el campo de búsqueda de CrackStation.
+3. Resolver el CAPTCHA y pulsar «Crack Hashes».
+4. CrackStation muestra tanto el **tipo de hash** detectado como la contraseña en texto plano, si está en su base de datos.
+
+> **Limitación importante:** CrackStation (y servicios similares) **no funcionan con hashes salados**, ya que el salt hace que el mismo texto de entrada genere un hash distinto cada vez — imposibilitando el uso de bases de datos precalculadas genéricas. Para esos casos (Nivel 2), el cracking offline dirigido con `hashcat`/`john` es obligatorio.
+
+---
+
+## 5. Resumen de resultados
+
+| #   | Tipo de hash                 | Modo Hashcat | Contraseña     |
+| --- | ---------------------------- | ------------ | -------------- |
+| 1   | MD5                          | `-m 0`       | `easy`         |
+| 2   | SHA-1                        | `-m 100`     | `password123`  |
+| 3   | SHA-256                      | `-m 1400`    | `letmein`      |
+| 4   | Bcrypt                       | `-m 3200`    | `bleh`         |
+| 5   | MD4                          | `-m 900`     | `Eternity22`   |
+| 6   | SHA-256                      | `-m 1400`    | `paule`        |
+| 7   | SHA-512crypt (salt embebido) | `-m 1800`    | `n63umy8lkf4i` |
+| 8   | HMAC-SHA1 (salt separado)    | `-m 160`     | `481616481616` |
+
+---
+
+## 6. Resumen del proceso
+
+1. **Identificación del tipo de hash** con `nth` (Name-That-Hash) o comparación manual de longitud/prefijo.
+2. **Nivel 1**: cracking directo con `hashcat` (o CrackStation como atajo) de 5 hashes de algoritmos comunes sin salt: MD5, SHA-1, SHA-256, Bcrypt y MD4.
+3. **Nivel 2**: cracking de hashes **con salt**, donde CrackStation ya no sirve y es obligatorio usar `hashcat` en modo offline, prestando atención a si el salt viene embebido en el propio hash (`$6$salt$hash`) o se entrega por separado (requiriendo el formato `hash:salt`).
+4. En los casos donde `rockyou.txt` no basta (como el MD4 o el Bcrypt, dependiendo del hardware disponible), se recurre a servicios online alternativos como Hashes.com o descifradores específicos por algoritmo.
+
+## 7. Lecciones aprendidas / conceptos clave
+
+- **Identificar el algoritmo correcto es el primer paso crítico**: usar el modo equivocado en Hashcat no produce un error explicativo, simplemente no encuentra coincidencia — lo cual puede hacer perder mucho tiempo pensando que la contraseña no está en la wordlist cuando en realidad el problema es el modo elegido.
+- **El _salt_ cambia todo el enfoque de cracking**: los hashes sin salt son vulnerables a bases de datos precalculadas (rainbow tables, CrackStation); los hashes con salt obligan a recalcular el hash de cada palabra del diccionario específicamente para ese salt, siendo mucho más costoso computacionalmente pero también mucho más resistente en la práctica.
+- **Bcrypt (y algoritmos similares como Argon2, PBKDF2, scrypt)** usan _key stretching_ deliberado para ser lentos de calcular, incluso si la contraseña subyacente es débil — una defensa en profundidad que ralentiza (aunque no impide) los ataques de diccionario/fuerza bruta.
+- **`hash:salt` es el formato estándar** que Hashcat espera cuando el salt no viene embebido en el propio string del hash; omitir el salt o ponerlo en el orden incorrecto invalida el ataque sin previo aviso.
+- **Herramientas de identificación (`nth`, `hash-identifier`, `hashid`) no son infalibles**: hashes de la misma longitud (por ejemplo, MD5 y MD4, ambos de 32 caracteres) pueden confundirse fácilmente; cuando hay ambigüedad, probar varios modos plausibles es una estrategia válida y habitual.
+
+## 8. Herramientas utilizadas
+
+`nth` (Name-That-Hash) / `hash-identifier` / `hashid`, `hashcat`, `john the ripper` (alternativa), [CrackStation](https://crackstation.net/), [Hashes.com](https://hashes.com/), wordlist `rockyou.txt`.
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la sala «Crack The Hash» en TryHackMe, complementada con writeups públicas de la comunidad para completar los hashes del Nivel 2 (con salt) y las explicaciones de cada modo de Hashcat utilizado._

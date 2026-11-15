@@ -1,119 +1,119 @@
 ---
 title: Macaw
-summary: 'Marketplace de tutorías universitarias donde el dinero nunca pasa directo entre usuarios: los créditos se congelan en depósito y solo se liberan cuando la sesión se confirma.'
+summary: 'Plataforma institucional de tutorías entre pares con varios campus, tutores remunerados y becarios, reservas y seguimiento académico y contable.'
 role: 'Aplicación completa: API y SPA'
 tier: case-study
 ecosystem: node
 category: web
 stack:
   - React 19
-  - Express 5
+  - Express
   - Prisma
   - PostgreSQL 18
   - Zustand
   - TanStack Query
-  - Tailwind CSS 4
+  - Tailwind CSS
   - OpenAI
 year: 2026
 status: active
-featured: false
-order: 2
+featured: true
+order: 1
+liveUrl: https://macaw-mu.vercel.app/
 repos:
   - label: Repositorio
     url: https://github.com/xEdwardP/Macaw
 highlights:
-  - Créditos en depósito con liberación condicionada a la confirmación
-  - Seis validaciones encadenadas antes de aceptar una reserva
-  - Recomendación de tutores y resumen de reseñas con IA
+  - Aprobación de tutores y permisos por rol y campus
+  - Tutorías remuneradas con saldo en custodia y becadas con registro de horas
+  - Google Calendar/Meet, reprogramación acordada y recomendaciones con IA
 ---
 
 ## El problema
 
-Un marketplace de tutorías entre estudiantes tiene un problema que no tiene una tienda: las
-dos partes pueden mentir. El tutor puede cobrar sin dar la clase; el estudiante puede recibir
-la clase y decir que no ocurrió. Y ninguno de los dos confía en el otro lo suficiente como
-para pagar por adelantado.
+Coordinar tutorías entre pares en una institución con varios campus exige más que conectar
+estudiantes con tutores. Cada campus necesita gestionar sus estudiantes, aprobar quién puede
+enseñar y atender solicitudes de ayuda, mientras la dirección mantiene un catálogo académico
+compartido y supervisa la operación.
 
-Encima está el problema de agenda: dos personas, disponibilidades distintas, y ninguna quiere
-descubrir el choque de horarios cuando ya reservó.
+Macaw reúne esos flujos en una plataforma que distingue entre **tutorías remuneradas** y
+**tutorías becadas**. Las primeras necesitan un seguimiento contable del saldo; las segundas
+registran horas de beca sin generar cobros.
 
 ## Decisiones de arquitectura
 
-### El dinero nunca se mueve entre usuarios
+### Permisos por rol y campus
 
-Ningún estudiante le paga a ningún tutor. El estudiante compra **créditos internos** con
-PayPal, y a partir de ahí todo ocurre dentro del sistema:
+La aplicación tiene cinco roles: estudiante, tutor remunerado, tutor becario, coordinador de
+campus y Director. El Director administra campus, coordinadores y el catálogo global de
+facultades y materias. Cada coordinador gestiona estudiantes, invitaciones, subsidios,
+aprobaciones de tutores y solicitudes de ayuda de su campus.
 
-```
-1. Recarga de billetera con PayPal
-2. Reserva          → los créditos pasan de `balance` a `frozen`
-3. El tutor imparte la sesión y la marca como entregada
-4. El estudiante confirma
-     → 90 % al saldo del tutor
-     → 10 % a la billetera de la plataforma
-5. El tutor solicita retiro; un administrador lo aprueba y paga por PayPal
-```
+El registro requiere correo del dominio institucional, un campus activo y verificación de
+correo. La aprobación del tutor es un paso independiente: para enseñar en otro campus
+necesita una membresía verificada allí. Las materias y reservas se validan contra el campus
+del estudiante. Revocar una aprobación impide nuevas reservas y conserva las sesiones ya
+registradas.
 
-El depósito en garantía resuelve la desconfianza mutua: el estudiante no paga a un
-desconocido, paga al sistema; el tutor sabe que el dinero ya está apartado antes de dar la
-clase.
+### Contabilidad separada de las horas de beca
 
-El punto que evita que el mecanismo se atasque: **si el estudiante no hace nada, el paso 4
-ocurre solo a las 24 horas** mediante una tarea programada. Sin eso, un estudiante distraído
-o de mala fe podría dejar el saldo del tutor congelado para siempre.
+Al reservar una tutoría remunerada, el sistema aparta saldo en custodia. La confirmación del
+estudiante, las cancelaciones y las disputas liquidan o reembolsan mediante un **libro
+contable auditable**. Las operaciones manuales de fondos y subsidios requieren una clave de
+idempotencia para evitar duplicados.
 
-Cuando hay desacuerdo, la sesión pasa a `disputed` y la resuelve un administrador. El estado
-del dinero siempre corresponde a un estado explícito de la sesión.
+El tutor solo puede marcar una sesión como impartida después de que termine. Un worker
+procesa la confirmación automática y los eventos pendientes. Las tutorías becadas atribuyen
+horas al programa correspondiente sin cobros ni retiros.
 
-### Seis validaciones, en orden, antes de reservar
+La moneda activa es USD y **PayPal funciona exclusivamente en sandbox**. Los pagos reales
+permanecen bloqueados, también en una instalación de producción.
 
-Reservar comprueba en secuencia:
+### Agenda compartida y reprogramación acordada
 
-1. El tutor existe y tiene disponibilidad ese día de la semana
-2. El rango solicitado cabe **entero** dentro de un bloque de disponibilidad
-3. La fecha es futura, evaluada en `America/Tegucigalpa`
-4. El tutor no tiene otra sesión solapada
-5. El estudiante no tiene otra sesión solapada
-6. El saldo del estudiante cubre el precio
+Los tutores configuran disponibilidad semanal, ausencias por fecha y su conexión con
+**Google Calendar/Meet**. Las ausencias bloquean nuevos horarios en todos sus campus sin
+alterar la agenda semanal ni cancelar automáticamente reservas existentes.
 
-Si todas pasan, **una sola transacción** crea la sesión, mueve el importe de `balance` a
-`frozen` y escribe el movimiento. No existe el estado intermedio en el que la sesión está
-creada pero el dinero no se apartó.
+Estudiante y tutor pueden proponer una reprogramación; solo la contraparte puede aceptarla.
+El horario original sigue vigente hasta esa aceptación, cuando se vuelven a comprobar
+disponibilidad, ausencias, cruces de agenda, aprobación del campus, materia y modalidad.
+Se conservan duración, precio, moneda, comisión y beca, sin mover dinero ni acreditar horas.
 
-El orden importa: se valida lo barato antes que lo caro, y la zona horaria es explícita
-porque una universidad opera en una zona concreta, no en UTC.
+El worker actualiza el evento original de Google Calendar con reintentos, conserva el enlace
+de Meet y descarta recordatorios de horarios anteriores. La interfaz muestra cuando la
+sincronización sigue pendiente.
 
-### Capas con responsabilidades estrictas
+### Recomendaciones con candidatos elegibles
 
-El backend sigue **módulo → rutas → controlador → servicio**. Las rutas declaran los
-middleware de autenticación y rol; los controladores solo traducen HTTP a llamadas de
-servicio y dan forma a la respuesta; los servicios contienen toda la lógica de negocio y las
-transacciones de Prisma.
+Las recomendaciones con IA parten de tutores activos y verificados, con materias del campus
+y disponibilidad reservable en los próximos 14 días. Al proveedor se envían materias,
+valoraciones, tarifas, días y códigos anónimos de candidatos, sin nombres, correos ni
+identificadores de cuentas. Si el proveedor no está configurado, las recomendaciones usan
+un resultado de respaldo con tutores válidos; el resumen de reseñas sí requiere el proveedor.
 
-Toda respuesta usa el mismo sobre, con éxito o sin él:
+Cuando una búsqueda no ofrece resultados, el estudiante puede solicitar ayuda. Su coordinador
+responde y puede sugerir un tutor elegible. La sugerencia no reserva horarios ni mueve saldo;
+el estudiante decide si quiere reservar. El historial solo es visible para el solicitante y
+la coordinación de su campus.
 
-```json
-{ "success": true, "message": "Success", "data": {} }
-```
+### API y worker separados
 
-El cliente nunca tiene que adivinar la forma de lo que recibe.
+El frontend usa React 19, Vite, React Router, TanStack Query, Zustand y Tailwind CSS. El
+backend combina Node.js, Express, Prisma y PostgreSQL 18, con módulos por funcionalidad y
+componentes compartidos para seguridad, auditoría, eventos y contabilidad.
 
-### La IA sugiere, no decide
-
-Dos usos de `gpt-4o-mini`, ambos acotados. Las **recomendaciones** construyen el prompt con
-la carrera, el trimestre, el promedio y las últimas diez asignaturas del estudiante, más
-hasta veinte tutores activos, y piden tres con una razón corta cada uno; la respuesta JSON se
-parsea y se **enriquece con los registros reales** de la base de datos. El **resumen de
-reseñas** condensa las últimas veinte en tres frases como máximo.
-
-En los dos casos el modelo ordena o resume datos que ya existen. No inventa tutores ni fija
-precios.
+Las sesiones de navegador usan cookies HttpOnly, comprobación CSRF y permisos por rol y
+campus. Las notificaciones se guardan en PostgreSQL y se actualizan mediante Socket.io.
+El worker coordina sus tareas con bloqueos de PostgreSQL y procesa correos de acceso,
+recordatorios, confirmaciones automáticas y eventos pendientes.
 
 ## Resultado
 
-Cuatro roles con panel propio: estudiante, tutor, universidad y administrador. La universidad
-gestiona facultades y asignaturas, y puede recargar un saldo institucional para subsidiar a
-sus estudiantes.
+Una plataforma de tutorías para una institución con varios campus, con interfaz y mensajes
+de error en español e inglés y temas claro y oscuro. Cada rol dispone de sus propios flujos,
+desde buscar tutor y reservar hasta gestionar becas, subsidios, disputas y retiros.
 
-Las videollamadas van sobre Jitsi Meet, con la sala generada en el momento de reservar, así
-que el enlace existe desde antes de que empiece la sesión.
+El Director cuenta con un panel de operaciones para revisar el worker, la cola de eventos,
+los recordatorios y la conciliación. Las integraciones requieren configuración y validación
+en cada instalación; Google Calendar necesita autorización vigente del tutor y un worker
+activo para sincronizar los cambios.

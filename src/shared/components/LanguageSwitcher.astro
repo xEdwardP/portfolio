@@ -13,6 +13,7 @@ const href = switchLocalePath(Astro.url.pathname, target);
 ---
 
 <a
+  data-language-switch={target}
   href={href}
   hreflang={target}
   aria-label={t('lang.switch')}
@@ -21,3 +22,32 @@ const href = switchLocalePath(Astro.url.pathname, target);
   <span aria-hidden="true">{target.toUpperCase()}</span>
   <span class="sr-only">{localeNames[target]}</span>
 </a>
+
+<script>
+  import { isLocale } from '@/i18n/config';
+  import { switchLocalePath } from '@/i18n/utils';
+
+  const link = document.querySelector<HTMLAnchorElement>('[data-language-switch]');
+  const sync = () => {
+    const target = link?.dataset.languageSwitch;
+    if (link && target && isLocale(target)) {
+      link.href = switchLocalePath(
+        window.location.pathname + window.location.search,
+        target
+      );
+    }
+  };
+
+  sync();
+  for (const event of [
+    'focus',
+    'pointerenter',
+    'pointerdown',
+    'click',
+    'auxclick',
+    'contextmenu',
+  ]) {
+    link?.addEventListener(event, sync);
+  }
+  window.addEventListener('popstate', sync);
+</script>

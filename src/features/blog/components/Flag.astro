@@ -1,0 +1,37 @@
+---
+import { Icon } from 'astro-icon/components';
+import { getLocaleFromPath, useTranslations } from '@/i18n/utils';
+
+interface Props {
+  value: string;
+}
+
+const { value } = Astro.props;
+const t = useTranslations(getLocaleFromPath(Astro.url.pathname));
+---
+
+<details class="flag my-4">
+  <summary
+    class="inline-flex cursor-pointer list-none items-center gap-2 rounded-lg border border-strong bg-surface px-3 py-1.5 text-sm font-medium text-text transition-colors hover:border-accent hover:text-accent [&::-webkit-details-marker]:hidden"
+  >
+    <Icon name="lucide:flag" class="size-4" aria-hidden="true" />
+    <span class="flag-show">{t('blog.flagShow')}</span>
+    <span class="flag-hide">{t('blog.flagHide')}</span>
+  </summary>
+  <span
+    translate="no"
+    class="mt-2 block w-fit max-w-full rounded-md bg-raised px-3 py-2 font-mono text-sm break-all text-text"
+    >{value}</span
+  >
+</details>
+
+<style>
+  .flag-hide,
+  details[open] .flag-show {
+    display: none;
+  }
+
+  details[open] .flag-hide {
+    display: inline;
+  }
+</style>

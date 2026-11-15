@@ -45,6 +45,7 @@ const control =
 
 <form
   data-contact-form
+  data-locale={locale}
   action={service.formAction}
   method="post"
   class="grid gap-5 sm:grid-cols-2"
@@ -87,6 +88,7 @@ const control =
             minlength={'min' in field ? field.min : undefined}
             maxlength={field.max}
             autocomplete={field.autocomplete}
+            spellcheck={field.type === 'email' ? 'false' : undefined}
             class={control}
           />
         )}
@@ -109,6 +111,14 @@ const control =
     />
   </div>
 
+  <div class="sm:col-span-2">
+    <p class="mb-2 text-sm font-medium">{t('contact.captcha.label')}</p>
+    <div data-captcha></div>
+    <p data-captcha-status class="mt-2 text-sm text-muted" aria-live="polite">
+      {t('contact.captcha.loading')}
+    </p>
+  </div>
+
   <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
     <button
       type="submit"
@@ -118,11 +128,21 @@ const control =
       <span data-label="idle">{t('contact.send')}</span>
       <span data-label="sending" hidden>{t('contact.sending')}</span>
     </button>
-
-    <p class="text-sm" aria-live="polite" data-status></p>
   </div>
 
   <div hidden data-messages>
+    <span data-message="sending" data-tone="text-muted">{t('contact.sending')}</span>
+    <span data-message="captchaThemeChanged" data-tone="text-muted"
+      >{t('contact.captcha.themeChanged')}</span
+    >
+    <span data-message="captcha" data-tone="text-danger">{t('contact.fail.captcha')}</span
+    >
+    <span data-message="captchaExpired" data-tone="text-danger"
+      >{t('contact.captcha.expired')}</span
+    >
+    <span data-message="captchaUnavailable" data-tone="text-danger"
+      >{t('contact.captcha.unavailable')}</span
+    >
     <span data-message="success" data-tone="text-success">{t('contact.success')}</span>
     <span data-message="misconfigured" data-tone="text-danger">
       {t('contact.fail.misconfigured')}
@@ -134,6 +154,15 @@ const control =
     >
   </div>
 </form>
+<!-- Keep announcements outside the busy form so assistive technology can read them immediately. -->
+<p
+  class="mt-3 text-sm"
+  role="status"
+  aria-live="polite"
+  aria-atomic="true"
+  data-contact-status
+>
+</p>
 
 <script>
   import { PUBLIC_WEB3FORMS_KEY } from 'astro:env/client';
@@ -141,17 +170,58 @@ const control =
   import { validate, type FieldName } from '@/features/contact/schema';
 
   type Control = HTMLInputElement | HTMLTextAreaElement;
+  interface CaptchaApi {
+    render(
+      container: HTMLElement,
+      options: {
+        sitekey: string;
+        hl: string;
+        theme: string;
+        size: string;
+        callback: (token: string) => void;
+        'expired-callback': () => void;
+        'error-callback': () => void;
+      }
+    ): string;
+    reset(id: string): void;
+    remove(id: string): void;
+  }
+  const captchaWindow = window as typeof window & {
+    hcaptcha?: CaptchaApi;
+    contactCaptchaLoaded?: () => void;
+  };
 
   const form = document.querySelector<HTMLFormElement>('[data-contact-form]');
 
   if (form) {
     const service = createContactService(PUBLIC_WEB3FORMS_KEY);
     const controls = [...form.querySelectorAll<Control>('[data-field]')];
-    const status = form.querySelector<HTMLElement>('[data-status]');
+    const status = document.querySelector<HTMLElement>('[data-contact-status]');
     const messages = form.querySelector<HTMLElement>('[data-messages]');
     const submit = form.querySelector<HTMLButtonElement>('[data-submit]');
     const idle = form.querySelector<HTMLElement>('[data-label="idle"]');
     const sending = form.querySelector<HTMLElement>('[data-label="sending"]');
+    const captcha = form.querySelector<HTMLElement>('[data-captcha]');
+    const captchaStatus = form.querySelector<HTMLElement>('[data-captcha-status]');
+    let captchaToken = '';
+    let widgetId: string | undefined;
+    let widgetTheme = '';
+    let captchaFailed = false;
+    let sendingRequest = false;
+
+    const initialValues = controls.map((control) => control.value);
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    const syncUnsaved = () => {
+      const dirty = controls.some(
+        (control, index) => control.value !== initialValues[index]
+      );
+      if (dirty) window.addEventListener('beforeunload', warnBeforeLeaving);
+      else window.removeEventListener('beforeunload', warnBeforeLeaving);
+    };
+    form.addEventListener('input', syncUnsaved);
+    window.addEventListener('pageshow', syncUnsaved);
 
     form.noValidate = true;
 
@@ -173,10 +243,84 @@ const control =
     };
 
     const setSending = (active: boolean) => {
+      sendingRequest = active;
+      form.setAttribute('aria-busy', String(active));
       if (submit) submit.disabled = active;
       if (idle) idle.hidden = active;
       if (sending) sending.hidden = !active;
+      if (active) report('sending');
     };
+
+    const resetCaptcha = () => {
+      captchaToken = '';
+      if (widgetId !== undefined) captchaWindow.hcaptcha?.reset(widgetId);
+    };
+
+    const unavailable = () => {
+      clearTimeout(loadTimeout);
+      captchaToken = '';
+      captchaFailed = true;
+      if (captchaStatus) captchaStatus.hidden = true;
+      report('captchaUnavailable');
+    };
+
+    // Register the callback before loading the API to avoid a script-load race.
+    const renderCaptcha = () => {
+      clearTimeout(loadTimeout);
+      if (!captcha || !captchaWindow.hcaptcha || widgetId !== undefined) return;
+      try {
+        widgetTheme = document.documentElement.classList.contains('dark')
+          ? 'dark'
+          : 'light';
+        captchaFailed = false;
+        widgetId = captchaWindow.hcaptcha.render(captcha, {
+          // Public site key provided by Web3Forms for its free-plan integration.
+          sitekey: '50b2fe65-b00b-4b9e-ad62-3ba471098be2',
+          hl: form.dataset.locale === 'en' ? 'en' : 'es',
+          theme: widgetTheme,
+          size: 'compact',
+          callback: (token) => {
+            captchaToken = token;
+            if (status) status.textContent = '';
+          },
+          'expired-callback': () => {
+            captchaToken = '';
+            report('captchaExpired');
+          },
+          'error-callback': unavailable,
+        });
+        if (captchaStatus) captchaStatus.hidden = true;
+        if (status) status.textContent = '';
+      } catch {
+        unavailable();
+      }
+    };
+    captchaWindow.contactCaptchaLoaded = renderCaptcha;
+
+    const syncCaptchaTheme = () => {
+      const theme = document.documentElement.classList.contains('dark')
+        ? 'dark'
+        : 'light';
+      if (sendingRequest || widgetId === undefined || theme === widgetTheme) return;
+      const wasVerified = Boolean(captchaToken);
+      captchaToken = '';
+      captchaWindow.hcaptcha?.remove(widgetId);
+      widgetId = undefined;
+      renderCaptcha();
+      if (wasVerified && !captchaFailed) report('captchaThemeChanged');
+    };
+    new MutationObserver(syncCaptchaTheme).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    const captchaScript = document.createElement('script');
+    captchaScript.src =
+      'https://js.hcaptcha.com/1/api.js?render=explicit&onload=contactCaptchaLoaded&recaptchacompat=off';
+    captchaScript.async = true;
+    captchaScript.addEventListener('error', unavailable, { once: true });
+    const loadTimeout = setTimeout(unavailable, 15000);
+    document.head.append(captchaScript);
 
     for (const control of controls) {
       control.addEventListener('input', () => {
@@ -192,6 +336,8 @@ const control =
 
       if (data.get('company')) {
         form.reset();
+        syncUnsaved();
+        resetCaptcha();
         report('success');
         return;
       }
@@ -210,15 +356,27 @@ const control =
         return;
       }
 
+      if (!captchaToken) {
+        report(captchaFailed ? 'captchaUnavailable' : 'captcha');
+        captcha?.querySelector('iframe')?.focus();
+        return;
+      }
+
       setSending(true);
-      if (status) status.textContent = '';
 
-      const result = await service.send(checked.data);
+      const result = await service.send(checked.data, captchaToken);
 
+      // Tokens are single-use, including after a failed or uncertain request.
+      resetCaptcha();
       setSending(false);
+      syncCaptchaTheme();
 
       if (result.ok) {
-        form.reset();
+        const unchanged = controls.every(
+          (control) => control.value.trim() === checked.data[control.name as FieldName]
+        );
+        if (unchanged) form.reset();
+        syncUnsaved();
         report('success');
       } else {
         report(result.reason);

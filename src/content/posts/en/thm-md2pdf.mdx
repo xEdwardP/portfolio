@@ -1,0 +1,152 @@
+---
+title: 'MD2PDF'
+description: 'SSRF through a Markdown-to-PDF converter: injecting HTML into the renderer to reach an internal panel restricted to localhost.'
+publishDate: 2026-09-03
+tags:
+  - cybersecurity
+  - tryhackme
+  - web
+---
+
+**Difficulty:** Easy **Category:** SSRF (Server-Side Request Forgery) via HTML→PDF rendering, HTML injection in Markdown, bypassing internal-access restrictions **Room:** [https://tryhackme.com/room/md2pdf](https://tryhackme.com/room/md2pdf)
+
+## Room description
+
+> “TopTierConversions LTD presents its latest product: an easy-to-use utility that converts Markdown files to PDF. Totally secure! Or is it…?”
+
+A web machine/challenge centred on a single vulnerability, but one very representative of real problems in applications that generate documents (PDFs, images, screenshots) from user-controlled content: **Server-Side Request Forgery (SSRF)**. The application lets you write Markdown (including embedded HTML) and converts it to PDF on the **server**, using a rendering engine like `wkhtmltopdf` (or similar) that interprets any valid HTML tag — including `<iframe>` with a `src` pointing at internal resources.
+
+> **Note on placeholders:** `{IP}` stands for the IP TryHackMe assigns (it changes on every deploy). Port `5000` and the `/admin` path are fixed on this machine.
+
+---
+
+## 1. Connection setup (VPN)
+
+```bash
+cd thm && sudo openvpn thm.ovpn
+mkdir -p md2pdf2/{scans,content,scripts,loot,exploits} && cd md2pdf2
+```
+
+---
+
+## 2. Port scan
+
+```bash
+nmap -p- --open -T5 -v -n target -oG scans/initial-scan
+extractPorts scans/initial-scan
+```
+
+- `-p- --open`: scans all TCP ports and shows only the open ones.
+- `-T5 -v -n`: aggressive timing, verbose, no DNS resolution.
+- `-oG`: “grepable” output for `extractPorts`.
+
+**Expected ports:**
+
+| Port     | Service                                |
+| -------- | -------------------------------------- |
+| 22/tcp   | SSH                                    |
+| 80/tcp   | HTTP (main Markdown→PDF application)   |
+| 5000/tcp | Additional HTTP (internal admin panel) |
+
+Port **5000** is the key piece of this machine: it hosts an `/admin` panel that, when accessed directly from your browser, answers with a **403 Forbidden** — indicating it only accepts connections from `localhost` (that is, from the server itself). This behaviour is exactly what makes the vulnerability exploitable.
+
+It is worth confirming directly:
+
+```bash
+curl -i http://{IP}:5000/admin
+# HTTP/1.1 403 Forbidden
+```
+
+---
+
+## 3. Recon of the main web application
+
+Visiting `http://{IP}/` (port 80), you find a very simple interface: a text field to write **Markdown** content, and a **“Convert to PDF”** button that generates and downloads a PDF document with the rendered content.
+
+Try a few basic Markdown syntaxes to confirm the expected behaviour:
+
+```markdown
+**bold**
+
+# Heading
+
+- List item
+```
+
+Downloading the PDF confirms these elements render correctly as bold, heading and list respectively — normal behaviour for any Markdown→PDF converter.
+
+---
+
+## 4. Identifying the vulnerability — embedded HTML
+
+Many Markdown converters allow, besides Markdown syntax itself, **raw HTML embedded directly** (this is a standard feature of the Markdown language, not a bug). Try inserting a simple HTML tag:
+
+```html
+<h1>test</h1>
+```
+
+When the PDF is generated, this also renders as a real heading — confirming the conversion engine **interprets and executes arbitrary HTML**, not just Markdown syntax. This opens the door to two related vulnerability types: **XSS** (if the result were shown in a browser with a session) and, more relevant here, **SSRF** (if the server can be forced to make requests to resources it can reach but an external user cannot).
+
+### 4.1 Why this is SSRF and not just “XSS in a PDF”
+
+The key is **where the rendering happens**: it does not occur in the attacker’s browser, but on the **server**, usually via a headless browser-like rendering engine such as **wkhtmltopdf** (a very common tool for this kind of conversion, internally based on WebKit). When that engine processes a tag like `<img>` or `<iframe>` with a `src` attribute, it makes the corresponding HTTP request **from the server machine itself**, not from the attacker’s network.
+
+This means that if the server can reach an internal resource (like the `/admin` panel on port 5000, protected to only accept connections from `localhost`), and we get the rendering engine to load that resource as part of the document, **the final result (the PDF) will contain content that we, as external attackers, would not have direct access to**.
+
+---
+
+## 5. Exploitation
+
+### 5.1 Building the payload
+
+```html
+<iframe src="http://localhost:5000/admin"></iframe>
+```
+
+- `<iframe>`: HTML tag that embeds another document/page inside the current one.
+- `src="http://localhost:5000/admin"`: tells the rendering engine to load that URL’s content. Since the request is made by the **server itself** while processing the document, `localhost` correctly resolves to `127.0.0.1` **from the server’s perspective** — that is, it points at the admin panel running on port 5000 of that same machine, which would normally reject (with 403) any connection not coming from that local IP.
+
+> Note: some public solutions of this room add explicit size attributes to ensure the embedded content shows fully inside the generated PDF, for example: `<iframe src="http://localhost:5000/admin" width="1000" height="2000"></iframe>`. This is not strictly necessary for the vulnerability to work, but it helps keep the content from being visually cut off in the final document.
+
+### 5.2 Send the payload
+
+1. Paste the full `<iframe>` into the application’s Markdown text field at `http://{IP}/`.
+2. Press the **“Convert to PDF”** button.
+3. Wait for the resulting PDF to be generated and downloaded.
+
+### 5.3 Verify the result
+
+Opening the downloaded PDF, instead of showing an empty iframe or a “blocked content” error (which is what would happen in a normal browser if we tried to load that URL directly ourselves), the document contains the **real content of the `/admin` page** — including the room flag, visible directly in the rendered text.
+
+```bash
+# (Optional) Verify directly with curl that the 403 persists from outside:
+curl http://{IP}:5000/admin
+# HTTP/1.1 403 Forbidden — confirms the bypass only works through the SSRF, not directly
+```
+
+---
+
+## 6. Attack chain summary
+
+1. **Recon** with `nmap` → SSH (22), main HTTP (80, Markdown→PDF converter), internal HTTP (5000, restricted `/admin` panel).
+2. **Confirm the access restriction**: `/admin` on port 5000 returns `403 Forbidden` when accessed directly from outside.
+3. **Test raw HTML rendering** inside the Markdown field → confirm the conversion engine executes arbitrary HTML, not just Markdown syntax.
+4. **Build the SSRF payload**: `<iframe src="http://localhost:5000/admin"></iframe>`.
+5. **Send the payload** and generate the PDF → the server, while rendering the document, makes the HTTP request internally (from `localhost`), bypassing the access restriction.
+6. **The resulting PDF contains the flag**, pulled from the admin panel that was directly inaccessible from outside.
+
+## 7. Lessons learned / key concepts
+
+- **SSRF (Server-Side Request Forgery)** occurs when an application allows, directly or indirectly, an attacker to induce the **server** to make HTTP requests to destinations the attacker could not reach themselves — typically internal services, cloud metadata (`169.254.169.254` on AWS/GCP/Azure), or other hosts on the internal network.
+- **Document-conversion services (Markdown/HTML → PDF, screenshots, thumbnail generation, etc.) are an extremely common source of SSRF** in real applications, precisely because their main job is “rendering content that includes external references” (images, iframes, stylesheets, fonts) — each of those references is an SSRF opportunity if not filtered properly.
+- **Restricting access to `localhost` only is not sufficient defence on its own** if any functionality in the application itself can be induced to make local requests on the attacker’s behalf — the IP restriction protects against _direct external_ attackers, but not against SSRF initiated _from inside_ the server.
+- **`wkhtmltopdf` and similar WebKit/Chromium-based engines without proper sandboxing** are notoriously prone to this kind of problem, since by design they are built to load and render any resource referenced in the HTML/Markdown they receive, without distinguishing “legitimate public resources” from “sensitive internal resources”.
+- **Typical mitigations** for this vulnerability include: sanitising/filtering HTML embedded in the Markdown before rendering it (allowing only a safe subset of tags), running the rendering engine in an isolated environment with no network access to internal services, and applying strict allowlists of permitted domains/IPs for any referenced external resource.
+
+## 8. Tools used
+
+`nmap`, `curl`, a web browser (to interact with the Markdown→PDF interface and to attempt direct access to the restricted `/admin`).
+
+---
+
+_Academic write-up, built from my own notes solving the “MD2PDF” machine on TryHackMe, supplemented with public community write-ups to explain in depth the SSRF mechanism via embedded-HTML rendering in Markdown and the role of tools like `wkhtmltopdf`._
